@@ -32,3 +32,18 @@ def create_tables() -> None:
 
     database_proxy.create_tables([Device, RoleEvent], safe=True)
     database_proxy.execute_sql("DROP INDEX IF EXISTS devices_single_chief_idx")
+    _ensure_device_access_token_hash()
+    database_proxy.execute_sql(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS device_access_token_hash_unique
+        ON devices (access_token_hash)
+        """
+    )
+
+
+def _ensure_device_access_token_hash() -> None:
+    column_names = {column.name for column in database_proxy.get_columns("devices")}
+    if "access_token_hash" not in column_names:
+        database_proxy.execute_sql(
+            "ALTER TABLE devices ADD COLUMN access_token_hash VARCHAR(128)"
+        )

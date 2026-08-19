@@ -4,6 +4,7 @@ from app.db.database import database_proxy
 from app.models.device import Device, utc_now
 from app.models.role_event import RoleEvent
 from app.schemas.device import ClientApp, DeviceRole, RoleAction
+from app.services.auth import issue_access_token
 
 BOOTSTRAP_CHIEF_LOCK_KEY = 20260819
 
@@ -13,7 +14,7 @@ def register_device(
     fingerprint_hash: str,
     client_app: ClientApp,
     push_token: str | None = None,
-) -> Device:
+) -> tuple[Device, str]:
     with database_proxy.atomic():
         device, _ = Device.get_or_create(
             fingerprint_hash=fingerprint_hash,
@@ -35,7 +36,8 @@ def register_device(
         _bootstrap_chief_if_needed(device)
         device = Device.get_by_id(device.id)
 
-    return device
+    access_token = issue_access_token(device)
+    return device, access_token
 
 
 def _bootstrap_chief_if_needed(device: Device) -> None:

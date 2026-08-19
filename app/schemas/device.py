@@ -31,4 +31,4 @@ class DeviceRegisterRequest(BaseModel):
 class DeviceRegisterResponse(BaseModel):
     device_id: UUID
     role: DeviceRole | None
-
+    access_token: str

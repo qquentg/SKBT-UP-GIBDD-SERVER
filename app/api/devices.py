@@ -11,7 +11,7 @@ def register(
     payload: DeviceRegisterRequest,
     client_app: ClientApp = Header(alias="X-Client-App"),
 ) -> DeviceRegisterResponse:
-    device = register_device(
+    device, access_token = register_device(
         fingerprint_hash=payload.fingerprint_hash,
         client_app=client_app,
         push_token=payload.push_token,
@@ -20,5 +20,5 @@ def register(
     return DeviceRegisterResponse(
         device_id=device.id,
         role=device.current_role,
+        access_token=access_token,
     )
-

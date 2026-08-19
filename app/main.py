@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.devices import router as devices_router
+from app.api.employee import router as employee_router
 from app.core.config import get_settings
 from app.db.database import close_database, init_database
 
@@ -28,6 +29,7 @@ def create_app(enable_lifespan: bool = True) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(devices_router)
+    app.include_router(employee_router)
     return app
 
 

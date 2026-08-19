@@ -1,5 +1,13 @@
 from app.models.device import Device
 from app.models.role_event import RoleEvent
+from app.services.auth import hash_access_token
+
+
+def auth_headers(access_token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "X-Client-App": "employee",
+    }
 
 
 def test_health(client):
@@ -28,7 +36,14 @@ def test_eyewitness_registration_is_idempotent(client):
     assert first.json()["device_id"] == second.json()["device_id"]
     assert first.json()["role"] is None
     assert second.json()["role"] is None
+    assert first.json()["access_token"]
+    assert second.json()["access_token"]
+    assert first.json()["access_token"] != second.json()["access_token"]
     assert Device.select().count() == 1
+
+    device = Device.get()
+    assert device.access_token_hash == hash_access_token(second.json()["access_token"])
+    assert device.access_token_hash != second.json()["access_token"]
 
 
 def test_first_employee_bootstraps_chief_once(client):
@@ -82,3 +97,148 @@ def test_invalid_client_app_is_rejected(client):
     )
 
     assert response.status_code == 422
+
+
+def test_employee_me_requires_valid_token(client):
+    response = client.get(
+        "/api/v1/employee/me",
+        headers={"X-Client-App": "employee"},
+    )
+
+    assert response.status_code == 401
+
+    registration = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "g" * 64},
+    ).json()
+
+    response = client.get(
+        "/api/v1/employee/me",
+        headers=auth_headers(registration["access_token"]),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "device_id": registration["device_id"],
+        "role": "CHIEF",
+    }
+
+
+def test_chief_can_assign_replace_and_remove_roles(client):
+    chief = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "h" * 64},
+    ).json()
+    target = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "i" * 64},
+    ).json()
+
+    lookup = client.get(
+        f"/api/v1/employee/devices/{target['device_id']}",
+        headers=auth_headers(chief["access_token"]),
+    )
+    assigned = client.put(
+        f"/api/v1/employee/devices/{target['device_id']}/role",
+        headers=auth_headers(chief["access_token"]),
+        json={"role": "ADMIN"},
+    )
+    repeated = client.put(
+        f"/api/v1/employee/devices/{target['device_id']}/role",
+        headers=auth_headers(chief["access_token"]),
+        json={"role": "ADMIN"},
+    )
+    replaced = client.put(
+        f"/api/v1/employee/devices/{target['device_id']}/role",
+        headers=auth_headers(chief["access_token"]),
+        json={"role": "INSPECTOR"},
+    )
+    removed = client.delete(
+        f"/api/v1/employee/devices/{target['device_id']}/role",
+        headers=auth_headers(chief["access_token"]),
+    )
+
+    assert lookup.status_code == 200
+    assert lookup.json()["role"] is None
+
+    assert assigned.status_code == 200
+    assert assigned.json()["role"] == "ADMIN"
+    assert assigned.json()["event"]["action"] == "ASSIGNED"
+
+    assert repeated.status_code == 200
+    assert repeated.json()["role"] == "ADMIN"
+    assert repeated.json()["event"] is None
+
+    assert replaced.status_code == 200
+    assert replaced.json()["role"] == "INSPECTOR"
+    assert replaced.json()["event"]["action"] == "REPLACED"
+
+    assert removed.status_code == 200
+    assert removed.json()["role"] is None
+    assert removed.json()["event"]["action"] == "REMOVED"
+
+    events = list(RoleEvent.select().order_by(RoleEvent.created_at))
+    assert [event.action for event in events] == [
+        "AUTO_ASSIGNED",
+        "ASSIGNED",
+        "REPLACED",
+        "REMOVED",
+    ]
+    assert events[-1].role == "INSPECTOR"
+
+
+def test_admin_cannot_assign_chief(client):
+    chief = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "j" * 64},
+    ).json()
+    admin = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "k" * 64},
+    ).json()
+    target = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "l" * 64},
+    ).json()
+
+    admin_assignment = client.put(
+        f"/api/v1/employee/devices/{admin['device_id']}/role",
+        headers=auth_headers(chief["access_token"]),
+        json={"role": "ADMIN"},
+    )
+    forbidden = client.put(
+        f"/api/v1/employee/devices/{target['device_id']}/role",
+        headers=auth_headers(admin["access_token"]),
+        json={"role": "CHIEF"},
+    )
+    allowed = client.put(
+        f"/api/v1/employee/devices/{target['device_id']}/role",
+        headers=auth_headers(admin["access_token"]),
+        json={"role": "INSPECTOR"},
+    )
+
+    assert admin_assignment.status_code == 200
+    assert forbidden.status_code == 403
+    assert allowed.status_code == 200
+    assert allowed.json()["role"] == "INSPECTOR"
+
+
+def test_unregistered_device_lookup_returns_404(client):
+    chief = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "m" * 64},
+    ).json()
+
+    response = client.get(
+        "/api/v1/employee/devices/00000000-0000-0000-0000-000000000000",
+        headers=auth_headers(chief["access_token"]),
+    )
+
+    assert response.status_code == 404
