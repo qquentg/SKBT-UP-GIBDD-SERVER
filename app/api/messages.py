@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
 from app.api.dependencies import get_authorized_device, require_employee_client
 from app.models.device import Device
@@ -11,11 +11,20 @@ from app.schemas.messages import (
     ChatMessagesResponse,
     ChatResponse,
     ChatsResponse,
+    MediaCreateRequest,
+    MediaResponse,
     MessageCreateRequest,
     MessageResponse,
+    MessageType,
+    StaticLocationCreateRequest,
+    StaticLocationResponse,
 )
 from app.services.messages import (
+    create_media_message,
+    create_static_location_message,
     create_text_message,
+    get_media_for_message,
+    get_static_location_for_message,
     list_chat_messages,
     list_chats,
     mark_message_delivered,
@@ -30,10 +39,48 @@ def post_message(
     client_app: ClientApp = Header(alias="X-Client-App"),
     sender: Device = Depends(get_authorized_device),
 ) -> MessageResponse:
+    if payload.message_type != MessageType.TEXT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use dedicated endpoint for this message_type",
+        )
+
     message = create_text_message(
         sender=sender,
         client_app=client_app,
         text=payload.text,
+        observer_device_id=payload.observer_device_id,
+    )
+    return _message_response(message)
+
+
+@router.post("/api/v1/messages/static-location", response_model=MessageResponse)
+def post_static_location_message(
+    payload: StaticLocationCreateRequest,
+    client_app: ClientApp = Header(alias="X-Client-App"),
+    sender: Device = Depends(get_authorized_device),
+) -> MessageResponse:
+    message = create_static_location_message(
+        sender=sender,
+        client_app=client_app,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        observer_device_id=payload.observer_device_id,
+    )
+    return _message_response(message)
+
+
+@router.post("/api/v1/messages/media", response_model=MessageResponse)
+def post_media_message(
+    payload: MediaCreateRequest,
+    client_app: ClientApp = Header(alias="X-Client-App"),
+    sender: Device = Depends(get_authorized_device),
+) -> MessageResponse:
+    message = create_media_message(
+        sender=sender,
+        client_app=client_app,
+        storage_key=payload.storage_key,
+        mime_type=payload.mime_type,
         observer_device_id=payload.observer_device_id,
     )
     return _message_response(message)
@@ -84,23 +131,45 @@ def patch_message_delivered(
 
 
 def _message_response(message: Message) -> MessageResponse:
+    static_location = get_static_location_for_message(message)
+    media = get_media_for_message(message)
     return MessageResponse(
         message_id=message.id,
         observer_device_id=message.observer_device_id,
         sender_device_id=message.sender_device_id,
         message_type=message.message_type,
         text=message.text,
+        static_location=(
+            StaticLocationResponse(
+                latitude=static_location.latitude,
+                longitude=static_location.longitude,
+            )
+            if static_location is not None
+            else None
+        ),
+        media=(
+            MediaResponse(
+                storage_key=media.storage_key,
+                mime_type=media.mime_type,
+                last_viewed_at=media.last_viewed_at,
+            )
+            if media is not None
+            else None
+        ),
         created_at=message.created_at,
         delivered_at=message.delivered_at,
     )
 
 
 def _chat_response(message: Message) -> ChatResponse:
+    message_response = _message_response(message)
     return ChatResponse(
-        observer_device_id=message.observer_device_id,
-        last_message_id=message.id,
-        last_message_type=message.message_type,
-        last_text=message.text,
-        last_created_at=message.created_at,
-        last_delivered_at=message.delivered_at,
+        observer_device_id=message_response.observer_device_id,
+        last_message_id=message_response.message_id,
+        last_message_type=message_response.message_type,
+        last_text=message_response.text,
+        last_static_location=message_response.static_location,
+        last_media=message_response.media,
+        last_created_at=message_response.created_at,
+        last_delivered_at=message_response.delivered_at,
     )

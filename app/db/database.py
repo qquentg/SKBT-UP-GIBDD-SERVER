@@ -28,10 +28,15 @@ def close_database() -> None:
 
 def create_tables() -> None:
     from app.models.device import Device
+    from app.models.media import Media
     from app.models.message import Message
     from app.models.role_event import RoleEvent
+    from app.models.static_location import StaticLocation
 
-    database_proxy.create_tables([Device, RoleEvent, Message], safe=True)
+    database_proxy.create_tables(
+        [Device, RoleEvent, Message, StaticLocation, Media],
+        safe=True,
+    )
     database_proxy.execute_sql("DROP INDEX IF EXISTS devices_single_chief_idx")
     _ensure_device_access_token_hash()
     database_proxy.execute_sql(

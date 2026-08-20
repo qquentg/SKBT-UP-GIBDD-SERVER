@@ -1,4 +1,6 @@
+from app.models.media import Media
 from app.models.message import Message
+from app.models.static_location import StaticLocation
 
 
 def auth_headers(access_token: str, client_app: str) -> dict[str, str]:
@@ -50,6 +52,8 @@ def test_eyewitness_sends_text_and_employee_reads_chat(client):
             "last_message_id": created.json()["message_id"],
             "last_message_type": "TEXT",
             "last_text": "Нужна помощь на дороге",
+            "last_static_location": None,
+            "last_media": None,
             "last_created_at": created.json()["created_at"],
             "last_delivered_at": None,
         }
@@ -151,3 +155,103 @@ def test_eyewitness_cannot_access_another_chat(client):
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Eyewitness can only access own chat"
+
+
+def test_eyewitness_sends_static_location_and_employee_reads_it(client):
+    observer = register(client, "eyewitness", "k")
+    chief = register(client, "employee", "l")
+
+    created = client.post(
+        "/api/v1/messages/static-location",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"latitude": 55.7558, "longitude": 37.6173},
+    )
+    messages = client.get(
+        f"/api/v1/chats/{observer['device_id']}/messages",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["message_type"] == "STATIC_LOCATION"
+    assert created.json()["text"] is None
+    assert created.json()["static_location"] == {
+        "latitude": 55.7558,
+        "longitude": 37.6173,
+    }
+    assert created.json()["media"] is None
+    assert StaticLocation.select().count() == 1
+
+    assert messages.status_code == 200
+    assert messages.json()["messages"][0]["static_location"] == {
+        "latitude": 55.7558,
+        "longitude": 37.6173,
+    }
+
+
+def test_static_location_coordinates_are_validated(client):
+    observer = register(client, "eyewitness", "m")
+
+    bad_latitude = client.post(
+        "/api/v1/messages/static-location",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"latitude": 91, "longitude": 37.6173},
+    )
+    bad_longitude = client.post(
+        "/api/v1/messages/static-location",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"latitude": 55.7558, "longitude": 181},
+    )
+
+    assert bad_latitude.status_code == 422
+    assert bad_longitude.status_code == 422
+
+
+def test_employee_sends_media_to_observer_chat(client):
+    observer = register(client, "eyewitness", "n")
+    chief = register(client, "employee", "o")
+
+    created = client.post(
+        "/api/v1/messages/media",
+        headers=auth_headers(chief["access_token"], "employee"),
+        json={
+            "observer_device_id": observer["device_id"],
+            "storage_key": "media/2026/08/photo.jpg",
+            "mime_type": "image/jpeg",
+        },
+    )
+    chats = client.get(
+        "/api/v1/chats",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["message_type"] == "MEDIA"
+    assert created.json()["observer_device_id"] == observer["device_id"]
+    assert created.json()["sender_device_id"] == chief["device_id"]
+    assert created.json()["text"] is None
+    assert created.json()["static_location"] is None
+    assert created.json()["media"] == {
+        "storage_key": "media/2026/08/photo.jpg",
+        "mime_type": "image/jpeg",
+        "last_viewed_at": None,
+    }
+    assert Media.select().count() == 1
+
+    assert chats.status_code == 200
+    assert chats.json()["chats"][0]["last_message_type"] == "MEDIA"
+    assert chats.json()["chats"][0]["last_media"]["storage_key"] == (
+        "media/2026/08/photo.jpg"
+    )
+
+
+def test_common_message_endpoint_accepts_only_text(client):
+    observer = register(client, "eyewitness", "p")
+
+    response = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "MEDIA", "text": "wrong endpoint"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Use dedicated endpoint for this message_type"

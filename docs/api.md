@@ -84,7 +84,7 @@ CHIEF     - Начальник
 
 ## Список эндпоинтов
 
-Сейчас реализовано 10 эндпоинтов:
+Сейчас реализовано 12 эндпоинтов:
 
 ```text
 GET    /health
@@ -94,6 +94,8 @@ GET    /api/v1/employee/devices/{device_id}
 PUT    /api/v1/employee/devices/{device_id}/role
 DELETE /api/v1/employee/devices/{device_id}/role
 POST   /api/v1/messages
+POST   /api/v1/messages/static-location
+POST   /api/v1/messages/media
 GET    /api/v1/chats
 GET    /api/v1/chats/{observer_device_id}/messages
 PATCH  /api/v1/messages/{message_id}/delivered
@@ -586,9 +588,11 @@ curl -X DELETE http://127.0.0.1:8001/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-
 
 ```text
 TEXT
+STATIC_LOCATION
+MEDIA
 ```
 
-Типы `MEDIA`, `STATIC_LOCATION`, `LIVE_LOCATION` есть в ERD, но для них нужны отдельные таблицы и отдельные эндпоинты следующих срезов.
+Тип `LIVE_LOCATION` есть в ERD, но будет реализован отдельным срезом.
 
 ### Заголовки для Очевидца
 
@@ -640,6 +644,8 @@ CHIEF
   "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "message_type": "TEXT",
   "text": "Нужна помощь на дороге",
+  "static_location": null,
+  "media": null,
   "created_at": "2026-08-20T13:30:00Z",
   "delivered_at": null
 }
@@ -687,6 +693,133 @@ CHIEF
 
 Статус: `403 Forbidden`.
 
+## POST /api/v1/messages/static-location
+
+Создает сообщение со статической точкой на карте.
+
+Это соответствует таблице `static_locations` из ERD.
+
+Доступ:
+
+```text
+Очевидец  - отправляет точку в свой чат
+Сотрудник - отправляет точку в чат конкретного Очевидца
+```
+
+Для Очевидца `observer_device_id` не нужен.
+
+Для Сотрудника `observer_device_id` обязателен.
+
+### Тело запроса от Очевидца
+
+```json
+{
+  "latitude": 55.7558,
+  "longitude": 37.6173
+}
+```
+
+### Тело запроса от Сотрудника
+
+```json
+{
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "latitude": 55.7558,
+  "longitude": 37.6173
+}
+```
+
+Ограничения:
+
+```text
+latitude  от -90 до 90
+longitude от -180 до 180
+```
+
+### Ответ
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0002",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "STATIC_LOCATION",
+  "text": null,
+  "static_location": {
+    "latitude": 55.7558,
+    "longitude": 37.6173
+  },
+  "media": null,
+  "created_at": "2026-08-20T13:31:00Z",
+  "delivered_at": null
+}
+```
+
+## POST /api/v1/messages/media
+
+Создает сообщение с медиа-файлом.
+
+Это соответствует таблице `media` из ERD.
+
+Сейчас backend не принимает сам файл. Он принимает метаданные уже сохраненного файла:
+
+```text
+storage_key - ключ/путь файла в хранилище
+mime_type   - MIME-тип файла
+```
+
+Загрузку файла в файловое хранилище можно сделать отдельным срезом. Для текущего API достаточно передать `storage_key`.
+
+Доступ:
+
+```text
+Очевидец  - отправляет медиа в свой чат
+Сотрудник - отправляет медиа в чат конкретного Очевидца
+```
+
+Для Очевидца `observer_device_id` не нужен.
+
+Для Сотрудника `observer_device_id` обязателен.
+
+### Тело запроса от Очевидца
+
+```json
+{
+  "storage_key": "media/2026/08/photo.jpg",
+  "mime_type": "image/jpeg"
+}
+```
+
+### Тело запроса от Сотрудника
+
+```json
+{
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "storage_key": "media/2026/08/photo.jpg",
+  "mime_type": "image/jpeg"
+}
+```
+
+### Ответ
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0003",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "MEDIA",
+  "text": null,
+  "static_location": null,
+  "media": {
+    "storage_key": "media/2026/08/photo.jpg",
+    "mime_type": "image/jpeg",
+    "last_viewed_at": null
+  },
+  "created_at": "2026-08-20T13:32:00Z",
+  "delivered_at": null
+}
+```
+
 ## GET /api/v1/chats
 
 Возвращает список чатов для приложения Сотрудника.
@@ -728,6 +861,8 @@ curl http://127.0.0.1:8001/api/v1/chats \
       "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0001",
       "last_message_type": "TEXT",
       "last_text": "Нужна помощь на дороге",
+      "last_static_location": null,
+      "last_media": null,
       "last_created_at": "2026-08-20T13:30:00Z",
       "last_delivered_at": null
     }
@@ -775,6 +910,8 @@ curl http://127.0.0.1:8001/api/v1/chats/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/mes
       "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
       "message_type": "TEXT",
       "text": "Нужна помощь на дороге",
+      "static_location": null,
+      "media": null,
       "created_at": "2026-08-20T13:30:00Z",
       "delivered_at": null
     }
@@ -908,22 +1045,24 @@ curl -X PATCH http://127.0.0.1:8001/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5
 8. Чтобы получить список чатов, вызвать `GET /api/v1/chats`.
 9. Чтобы открыть чат, вызвать `GET /api/v1/chats/{observer_device_id}/messages`.
 10. Чтобы отправить текст в чат Очевидца, вызвать `POST /api/v1/messages` с `observer_device_id`.
+11. Чтобы отправить точку в чат Очевидца, вызвать `POST /api/v1/messages/static-location` с `observer_device_id`.
+12. Чтобы отправить медиа в чат Очевидца, вызвать `POST /api/v1/messages/media` с `observer_device_id`.
 
 Минимальный порядок работы для приложения Очевидца:
 
 1. При первом запуске вызвать `POST /api/v1/devices/register` с `X-Client-App: eyewitness`.
 2. Сохранить `device_id` и `access_token`.
 3. Чтобы отправить текстовое сообщение, вызвать `POST /api/v1/messages`.
-4. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
-5. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
+4. Чтобы отправить точку, вызвать `POST /api/v1/messages/static-location`.
+5. Чтобы отправить медиа, вызвать `POST /api/v1/messages/media`.
+6. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
+7. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
 
 ## Что еще не реализовано
 
 Эти части есть в общей схеме системы, но в текущем backend-срезе еще не сделаны:
 
 ```text
-медиа
-статическая геолокация
 live-геолокация
 баны
 push-уведомления

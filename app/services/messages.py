@@ -4,7 +4,9 @@ from fastapi import HTTPException, status
 
 from app.db.database import database_proxy
 from app.models.device import Device, utc_now
+from app.models.media import Media
 from app.models.message import Message
+from app.models.static_location import StaticLocation
 from app.schemas.device import ClientApp
 from app.schemas.messages import MessageType
 
@@ -44,6 +46,77 @@ def create_text_message(
             sender_device=sender.id,
             message_type=MessageType.TEXT.value,
             text=text.strip(),
+        )
+        Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
+
+    return message
+
+
+def create_static_location_message(
+    *,
+    sender: Device,
+    client_app: ClientApp,
+    latitude: float,
+    longitude: float,
+    observer_device_id: UUID | None,
+) -> Message:
+    observer = _resolve_observer_device(
+        sender=sender,
+        client_app=client_app,
+        observer_device_id=observer_device_id,
+    )
+
+    with database_proxy.atomic():
+        message = Message.create(
+            observer_device=observer.id,
+            sender_device=sender.id,
+            message_type=MessageType.STATIC_LOCATION.value,
+        )
+        StaticLocation.create(
+            message=message.id,
+            latitude=latitude,
+            longitude=longitude,
+        )
+        Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
+
+    return message
+
+
+def create_media_message(
+    *,
+    sender: Device,
+    client_app: ClientApp,
+    storage_key: str,
+    mime_type: str,
+    observer_device_id: UUID | None,
+) -> Message:
+    if not storage_key.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="storage_key cannot be empty",
+        )
+    if not mime_type.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="mime_type cannot be empty",
+        )
+
+    observer = _resolve_observer_device(
+        sender=sender,
+        client_app=client_app,
+        observer_device_id=observer_device_id,
+    )
+
+    with database_proxy.atomic():
+        message = Message.create(
+            observer_device=observer.id,
+            sender_device=sender.id,
+            message_type=MessageType.MEDIA.value,
+        )
+        Media.create(
+            message=message.id,
+            storage_key=storage_key.strip(),
+            mime_type=mime_type.strip(),
         )
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
@@ -117,6 +190,18 @@ def get_message_or_404(message_id: UUID) -> Message:
             detail="Message not found",
         )
     return message
+
+
+def get_static_location_for_message(message: Message) -> StaticLocation | None:
+    if message.message_type != MessageType.STATIC_LOCATION.value:
+        return None
+    return StaticLocation.get_or_none(StaticLocation.message == message.id)
+
+
+def get_media_for_message(message: Message) -> Media | None:
+    if message.message_type != MessageType.MEDIA.value:
+        return None
+    return Media.get_or_none(Media.message == message.id)
 
 
 def _resolve_observer_device(
