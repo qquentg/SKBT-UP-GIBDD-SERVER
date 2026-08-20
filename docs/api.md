@@ -791,7 +791,9 @@ storage_key - ключ/путь файла в хранилище
 mime_type   - MIME-тип файла
 ```
 
-Этот endpoint не принимает сам файл. Он нужен только для случая, когда файл уже сохранен где-то отдельно, а backend получает готовый `storage_key`.
+Этот endpoint не принимает сам файл. Он нужен только для случая, когда файл уже сохранен в файловом хранилище backend, а backend получает готовый `storage_key`.
+
+Backend проверяет, что файл по `storage_key` реально существует, MIME-тип поддерживается, а размер файла укладывается в ограничения. Если файла нет, сообщение не создается.
 
 Если Android-приложение хочет отправить фото из `Uri`, нужно использовать `POST /api/v1/messages/media/upload`.
 
@@ -893,6 +895,15 @@ GIF:      до 100 MB
 Видео:    до 100 MB
 ```
 
+Срок жизни медиа:
+
+```text
+7 дней с момента последнего скачивания мобильным клиентом.
+Если файл ни разу не скачивали: 7 дней с момента отправки сообщения.
+```
+
+Истекшее медиа не скачивается. Старые файлы удаляются при обращении к ним и при следующих upload-запросах.
+
 Пример через curl от Очевидца:
 
 ```bash
@@ -921,6 +932,7 @@ curl -X POST http://193.124.115.164:4401/api/v1/messages/media/upload \
 ```text
 400 - observer_device_id is required for employee messages
 403 - нет доступа к чату
+404 - Media file not found
 413 - Media file is too large
 415 - Unsupported media mime_type
 422 - Media file cannot be empty
@@ -960,6 +972,7 @@ curl http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2
 403 - нет доступа к чату
 404 - Message not found
 404 - Media file not found
+410 - Media file has expired
 ```
 
 ## POST /api/v1/messages/live-location/start

@@ -6,14 +6,18 @@
 
 - `GET /health`
 - `POST /api/v1/devices/register`
-- Peewee-модели `devices` и `role_events`
+- Peewee-модели `devices`, `role_events`, `messages`, `media`, `static_locations`, `live_location_sessions`, `location_points`
 - регистрация устройства по `fingerprint_hash`
 - разделение сценариев через `X-Client-App: eyewitness|employee`
 - автоматическое назначение первого `CHIEF` для employee-сценария
 - запись `role_events.AUTO_ASSIGNED`
 - несколько устройств с ролью `CHIEF` разрешены; ограничение "один CHIEF" действует только для автоматического bootstrap
+- текстовые сообщения и список чатов по `messages.observer_device_id`
+- статическая геолокация
+- live-геолокация на 15 минут
+- загрузка и скачивание медиа-файлов с TTL 7 дней
 
-Не добавлены: WebSocket, media, bans, geolocation, push, Excel, Docker.
+Не добавлены: WebSocket, bans, push, Excel, Docker.
 
 ## Требования
 

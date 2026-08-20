@@ -18,6 +18,7 @@ from app.schemas.messages import MessageType
 
 EMPLOYEE_CHAT_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
 LIVE_LOCATION_DURATION = timedelta(minutes=15)
+MEDIA_TTL = timedelta(days=7)
 MEDIA_PHOTO_MAX_BYTES = 10 * 1024 * 1024
 MEDIA_VIDEO_GIF_MAX_BYTES = 100 * 1024 * 1024
 MEDIA_UPLOAD_MAX_BYTES = MEDIA_VIDEO_GIF_MAX_BYTES
@@ -104,16 +105,17 @@ def create_media_message(
     mime_type: str,
     observer_device_id: UUID | None,
 ) -> Message:
-    if not storage_key.strip():
+    storage_key = storage_key.strip()
+    if not storage_key:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="storage_key cannot be empty",
         )
-    if not mime_type.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="mime_type cannot be empty",
-        )
+    normalized_mime_type = _normalize_media_mime_type(mime_type)
+    _validate_stored_media_file(
+        storage_key=storage_key,
+        mime_type=normalized_mime_type,
+    )
 
     observer = _resolve_observer_device(
         sender=sender,
@@ -129,8 +131,8 @@ def create_media_message(
         )
         Media.create(
             message=message.id,
-            storage_key=storage_key.strip(),
-            mime_type=mime_type.strip(),
+            storage_key=storage_key,
+            mime_type=normalized_mime_type,
         )
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
@@ -146,6 +148,8 @@ def create_uploaded_media_message(
     content: bytes,
     observer_device_id: UUID | None,
 ) -> Message:
+    cleanup_expired_media_files()
+
     if not content:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -369,6 +373,20 @@ def get_message_or_404(message_id: UUID) -> Message:
     return message
 
 
+def cleanup_expired_media_files() -> int:
+    deleted_count = 0
+    now = utc_now()
+
+    for media in Media.select():
+        message = Message.get_or_none(Message.id == media.message_id)
+        if message is None:
+            continue
+        if _media_expires_at(message=message, media=media) <= now:
+            deleted_count += int(_delete_media_file_if_exists(media.storage_key))
+
+    return deleted_count
+
+
 def get_media_file_for_message(
     *,
     actor: Device,
@@ -393,6 +411,13 @@ def get_media_file_for_message(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Media metadata not found",
+        )
+
+    if _media_expires_at(message=message, media=media) <= utc_now():
+        _delete_media_file_if_exists(media.storage_key)
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Media file has expired",
         )
 
     file_path = _media_file_path(media.storage_key)
@@ -523,6 +548,19 @@ def _normalize_media_mime_type(mime_type: str | None) -> str:
     return normalized
 
 
+def _validate_stored_media_file(*, storage_key: str, mime_type: str) -> None:
+    file_path = _media_file_path(storage_key)
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media file not found",
+        )
+    _validate_media_size(
+        mime_type=mime_type,
+        size_bytes=file_path.stat().st_size,
+    )
+
+
 def _validate_media_size(*, mime_type: str, size_bytes: int) -> None:
     max_bytes = (
         MEDIA_VIDEO_GIF_MAX_BYTES
@@ -534,6 +572,19 @@ def _validate_media_size(*, mime_type: str, size_bytes: int) -> None:
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail="Media file is too large",
         )
+
+
+def _media_expires_at(*, message: Message, media: Media) -> datetime:
+    base = media.last_viewed_at if media.last_viewed_at is not None else message.created_at
+    return _as_utc_aware(base) + MEDIA_TTL
+
+
+def _delete_media_file_if_exists(storage_key: str) -> bool:
+    file_path = _media_file_path(storage_key)
+    if file_path.is_file():
+        file_path.unlink()
+        return True
+    return False
 
 
 def _media_file_path(storage_key: str) -> Path:

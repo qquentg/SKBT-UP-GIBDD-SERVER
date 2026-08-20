@@ -1,10 +1,13 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
+from app.core.config import get_settings
 from app.models.live_location_session import LiveLocationSession
 from app.models.location_point import LocationPoint
 from app.models.media import Media
 from app.models.message import Message
 from app.models.static_location import StaticLocation
+from app.models.device import utc_now
 
 
 def auth_headers(access_token: str, client_app: str) -> dict[str, str]:
@@ -214,13 +217,17 @@ def test_static_location_coordinates_are_validated(client):
 def test_employee_sends_media_to_observer_chat(client):
     observer = register(client, "eyewitness", "n")
     chief = register(client, "employee", "o")
+    storage_key = "media/2026/08/photo.jpg"
+    media_path = Path(get_settings().media_storage_dir) / storage_key
+    media_path.parent.mkdir(parents=True, exist_ok=True)
+    media_path.write_bytes(b"jpeg-bytes")
 
     created = client.post(
         "/api/v1/messages/media",
         headers=auth_headers(chief["access_token"], "employee"),
         json={
             "observer_device_id": observer["device_id"],
-            "storage_key": "media/2026/08/photo.jpg",
+            "storage_key": storage_key,
             "mime_type": "image/jpeg",
         },
     )
@@ -236,7 +243,7 @@ def test_employee_sends_media_to_observer_chat(client):
     assert created.json()["text"] is None
     assert created.json()["static_location"] is None
     assert created.json()["media"] == {
-        "storage_key": "media/2026/08/photo.jpg",
+        "storage_key": storage_key,
         "mime_type": "image/jpeg",
         "last_viewed_at": None,
     }
@@ -244,9 +251,23 @@ def test_employee_sends_media_to_observer_chat(client):
 
     assert chats.status_code == 200
     assert chats.json()["chats"][0]["last_message_type"] == "MEDIA"
-    assert chats.json()["chats"][0]["last_media"]["storage_key"] == (
-        "media/2026/08/photo.jpg"
+    assert chats.json()["chats"][0]["last_media"]["storage_key"] == storage_key
+
+
+def test_media_metadata_endpoint_requires_existing_file(client):
+    observer = register(client, "eyewitness", "z")
+
+    created = client.post(
+        "/api/v1/messages/media",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={
+            "storage_key": "media/missing.jpg",
+            "mime_type": "image/jpeg",
+        },
     )
+
+    assert created.status_code == 404
+    assert created.json()["detail"] == "Media file not found"
 
 
 def test_eyewitness_uploads_media_file_and_employee_downloads_it(client):
@@ -326,6 +347,80 @@ def test_empty_media_upload_is_rejected(client):
 
     assert created.status_code == 422
     assert created.json()["detail"] == "Media file cannot be empty"
+
+
+def test_expired_media_file_is_not_downloaded(client):
+    observer = register(client, "eyewitness", "6")
+    chief = register(client, "employee", "7")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("photo.jpg", b"jpeg-bytes", "image/jpeg")},
+    ).json()
+    media = Media.get()
+    media_path = Path(get_settings().media_storage_dir) / media.storage_key
+    Message.update(created_at=datetime.now(UTC) - timedelta(days=8)).where(
+        Message.id == created["message_id"]
+    ).execute()
+
+    downloaded = client.get(
+        f"/api/v1/messages/{created['message_id']}/media",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert downloaded.status_code == 410
+    assert downloaded.json()["detail"] == "Media file has expired"
+    assert not media_path.exists()
+
+
+def test_recent_media_view_extends_ttl(client):
+    observer = register(client, "eyewitness", "8")
+    chief = register(client, "employee", "9")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("photo.jpg", b"jpeg-bytes", "image/jpeg")},
+    ).json()
+    Message.update(created_at=datetime.now(UTC) - timedelta(days=8)).where(
+        Message.id == created["message_id"]
+    ).execute()
+    Media.update(last_viewed_at=utc_now()).where(
+        Media.message == created["message_id"]
+    ).execute()
+
+    downloaded = client.get(
+        f"/api/v1/messages/{created['message_id']}/media",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"jpeg-bytes"
+
+
+def test_media_upload_cleans_expired_files(client):
+    observer = register(client, "eyewitness", "!")
+
+    old_message = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("old.jpg", b"old-bytes", "image/jpeg")},
+    ).json()
+    old_media = Media.get()
+    old_media_path = Path(get_settings().media_storage_dir) / old_media.storage_key
+    Message.update(created_at=datetime.now(UTC) - timedelta(days=8)).where(
+        Message.id == old_message["message_id"]
+    ).execute()
+
+    new_message = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("new.jpg", b"new-bytes", "image/jpeg")},
+    )
+
+    assert new_message.status_code == 200
+    assert not old_media_path.exists()
 
 
 def test_unsupported_media_mime_type_is_rejected(client):
