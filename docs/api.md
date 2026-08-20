@@ -32,12 +32,6 @@ android:usesCleartextTraffic="true"
 
 Если Retrofit случайно настроен на `https://193.124.115.164:4401/`, запрос не пройдет: на порту `4401` сейчас обычный HTTP.
 
-Локально:
-
-```text
-http://127.0.0.1:8001
-```
-
 Если backend запущен на другом порту, меняется только базовый адрес. Пути эндпоинтов остаются такими же.
 
 Веб-порты `80` и `443` не используются для этого API, поэтому публичный тестовый порт backend: `4401`.
@@ -132,7 +126,7 @@ PATCH  /api/v1/messages/{message_id}/delivered
 Пример запроса:
 
 ```bash
-curl http://127.0.0.1:8001/health
+curl http://193.124.115.164:4401/health
 ```
 
 Ответ `200 OK`:
@@ -226,7 +220,7 @@ Frontend должен заменить старый токен на новый.
 ### Пример curl
 
 ```bash
-curl -X POST http://127.0.0.1:8001/api/v1/devices/register \
+curl -X POST http://193.124.115.164:4401/api/v1/devices/register \
   -H "Content-Type: application/json" \
   -H "X-Client-App: employee" \
   -d "{\"fingerprint_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"push_token\":null}"
@@ -306,7 +300,7 @@ X-Client-App: employee
 ### Пример запроса
 
 ```bash
-curl http://127.0.0.1:8001/api/v1/employee/me \
+curl http://193.124.115.164:4401/api/v1/employee/me \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -347,7 +341,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl http://127.0.0.1:8001/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003 \
+curl http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003 \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -441,7 +435,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl -X PUT http://127.0.0.1:8001/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
+curl -X PUT http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee" \
@@ -554,7 +548,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl -X DELETE http://127.0.0.1:8001/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
+curl -X DELETE http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -868,7 +862,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl http://127.0.0.1:8001/api/v1/chats \
+curl http://193.124.115.164:4401/api/v1/chats \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -916,7 +910,7 @@ curl http://127.0.0.1:8001/api/v1/chats \
 ### Пример запроса
 
 ```bash
-curl http://127.0.0.1:8001/api/v1/chats/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/messages \
+curl http://193.124.115.164:4401/api/v1/chats/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/messages \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -1024,7 +1018,7 @@ delivered_at заполнено  сообщение доставлено
 ### Пример запроса
 
 ```bash
-curl -X PATCH http://127.0.0.1:8001/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0001/delivered \
+curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0001/delivered \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
