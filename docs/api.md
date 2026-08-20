@@ -10,6 +10,28 @@
 http://193.124.115.164:4401
 ```
 
+Для Retrofit/OkHttp base URL обычно нужно указывать со слешем в конце:
+
+```text
+http://193.124.115.164:4401/
+```
+
+Важно: сейчас API работает по `http`, не по `https`.
+
+Для Android-приложения на время тестов может понадобиться разрешить cleartext traffic:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+```
+
+и в `application`:
+
+```xml
+android:usesCleartextTraffic="true"
+```
+
+Если Retrofit случайно настроен на `https://193.124.115.164:4401/`, запрос не пройдет: на порту `4401` сейчас обычный HTTP.
+
 Локально:
 
 ```text
