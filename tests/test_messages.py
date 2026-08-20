@@ -328,6 +328,45 @@ def test_empty_media_upload_is_rejected(client):
     assert created.json()["detail"] == "Media file cannot be empty"
 
 
+def test_unsupported_media_mime_type_is_rejected(client):
+    observer = register(client, "eyewitness", "3")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("document.pdf", b"pdf-bytes", "application/pdf")},
+    )
+
+    assert created.status_code == 415
+    assert created.json()["detail"] == "Unsupported media mime_type"
+
+
+def test_photo_upload_limit_is_10_mb(client):
+    observer = register(client, "eyewitness", "4")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("too-large.jpg", b"x" * (10 * 1024 * 1024 + 1), "image/jpeg")},
+    )
+
+    assert created.status_code == 413
+    assert created.json()["detail"] == "Media file is too large"
+
+
+def test_gif_upload_can_be_larger_than_photo_limit(client):
+    observer = register(client, "eyewitness", "5")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("animation.gif", b"x" * (10 * 1024 * 1024 + 1), "image/gif")},
+    )
+
+    assert created.status_code == 200
+    assert created.json()["media"]["mime_type"] == "image/gif"
+
+
 def test_common_message_endpoint_accepts_only_text(client):
     observer = register(client, "eyewitness", "p")
 

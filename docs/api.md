@@ -875,7 +875,23 @@ file - сам файл
 observer_device_id - device_id Очевидца, в чей чат отправляется файл
 ```
 
-Ограничение размера файла: до 10 MB.
+Поддерживаемые типы файлов:
+
+```text
+image/jpeg
+image/png
+image/webp
+image/gif
+video/mp4
+```
+
+Ограничения размера:
+
+```text
+Фото:     до 10 MB
+GIF:      до 100 MB
+Видео:    до 100 MB
+```
 
 Пример через curl от Очевидца:
 
@@ -906,6 +922,7 @@ curl -X POST http://193.124.115.164:4401/api/v1/messages/media/upload \
 400 - observer_device_id is required for employee messages
 403 - нет доступа к чату
 413 - Media file is too large
+415 - Unsupported media mime_type
 422 - Media file cannot be empty
 ```
 

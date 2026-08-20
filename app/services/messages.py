@@ -18,7 +18,13 @@ from app.schemas.messages import MessageType
 
 EMPLOYEE_CHAT_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
 LIVE_LOCATION_DURATION = timedelta(minutes=15)
-MEDIA_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+MEDIA_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+MEDIA_VIDEO_GIF_MAX_BYTES = 100 * 1024 * 1024
+MEDIA_UPLOAD_MAX_BYTES = MEDIA_VIDEO_GIF_MAX_BYTES
+PHOTO_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+GIF_MIME_TYPES = {"image/gif"}
+VIDEO_MIME_TYPES = {"video/mp4"}
+SUPPORTED_MEDIA_MIME_TYPES = PHOTO_MIME_TYPES | GIF_MIME_TYPES | VIDEO_MIME_TYPES
 
 
 def require_employee_chat_access(device: Device) -> None:
@@ -145,11 +151,12 @@ def create_uploaded_media_message(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Media file cannot be empty",
         )
-    if len(content) > MEDIA_UPLOAD_MAX_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Media file is too large",
-        )
+
+    normalized_mime_type = _normalize_media_mime_type(mime_type)
+    _validate_media_size(
+        mime_type=normalized_mime_type,
+        size_bytes=len(content),
+    )
 
     storage_key = _new_media_storage_key(filename)
     file_path = _media_file_path(storage_key)
@@ -161,8 +168,7 @@ def create_uploaded_media_message(
             sender=sender,
             client_app=client_app,
             storage_key=storage_key,
-            mime_type=(mime_type or "application/octet-stream").strip()
-            or "application/octet-stream",
+            mime_type=normalized_mime_type,
             observer_device_id=observer_device_id,
         )
     except Exception:
@@ -505,6 +511,29 @@ def _new_media_storage_key(filename: str | None) -> str:
     if len(suffix) > 16 or not suffix.startswith(".") or not suffix[1:].isalnum():
         suffix = ""
     return f"{now:%Y/%m}/{uuid4().hex}{suffix}"
+
+
+def _normalize_media_mime_type(mime_type: str | None) -> str:
+    normalized = (mime_type or "").split(";", maxsplit=1)[0].strip().lower()
+    if normalized not in SUPPORTED_MEDIA_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported media mime_type",
+        )
+    return normalized
+
+
+def _validate_media_size(*, mime_type: str, size_bytes: int) -> None:
+    max_bytes = (
+        MEDIA_VIDEO_GIF_MAX_BYTES
+        if mime_type in GIF_MIME_TYPES | VIDEO_MIME_TYPES
+        else MEDIA_PHOTO_MAX_BYTES
+    )
+    if size_bytes > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Media file is too large",
+        )
 
 
 def _media_file_path(storage_key: str) -> Path:
