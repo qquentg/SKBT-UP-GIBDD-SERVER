@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -180,7 +180,7 @@ def add_live_location_point(
         )
 
     now = utc_now()
-    if session.ends_at <= now:
+    if _as_utc_aware(session.ends_at) <= now:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Live location session has ended",
@@ -220,7 +220,7 @@ def stop_live_location(
         )
 
     now = utc_now()
-    if session.ends_at > now:
+    if _as_utc_aware(session.ends_at) > now:
         LiveLocationSession.update(ends_at=now).where(
             LiveLocationSession.message == message.id
         ).execute()
@@ -409,3 +409,9 @@ def _require_live_location_sender(*, actor: Device, message: Message) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only live location sender can update this session",
         )
+
+
+def _as_utc_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
