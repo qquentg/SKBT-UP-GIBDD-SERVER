@@ -1,3 +1,7 @@
+from datetime import datetime
+
+from app.models.live_location_session import LiveLocationSession
+from app.models.location_point import LocationPoint
 from app.models.media import Media
 from app.models.message import Message
 from app.models.static_location import StaticLocation
@@ -54,6 +58,7 @@ def test_eyewitness_sends_text_and_employee_reads_chat(client):
             "last_text": "Нужна помощь на дороге",
             "last_static_location": None,
             "last_media": None,
+            "last_live_location": None,
             "last_created_at": created.json()["created_at"],
             "last_delivered_at": None,
         }
@@ -255,3 +260,96 @@ def test_common_message_endpoint_accepts_only_text(client):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Use dedicated endpoint for this message_type"
+
+
+def test_eyewitness_starts_live_location_and_employee_reads_points(client):
+    observer = register(client, "eyewitness", "q")
+    chief = register(client, "employee", "r")
+
+    started = client.post(
+        "/api/v1/messages/live-location/start",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={},
+    )
+    point = client.post(
+        f"/api/v1/messages/{started.json()['message_id']}/live-location/points",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"latitude": 55.7558, "longitude": 37.6173},
+    )
+    points = client.get(
+        f"/api/v1/messages/{started.json()['message_id']}/live-location/points",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    messages = client.get(
+        f"/api/v1/chats/{observer['device_id']}/messages",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert started.status_code == 200
+    assert started.json()["message_type"] == "LIVE_LOCATION"
+    assert started.json()["live_location"]["ends_at"] is not None
+    assert LiveLocationSession.select().count() == 1
+
+    assert point.status_code == 200
+    assert point.json()["latitude"] == 55.7558
+    assert point.json()["longitude"] == 37.6173
+    assert LocationPoint.select().count() == 1
+
+    assert points.status_code == 200
+    assert points.json()["points"] == [point.json()]
+
+    assert messages.status_code == 200
+    assert messages.json()["messages"][0]["message_type"] == "LIVE_LOCATION"
+    assert messages.json()["messages"][0]["live_location"]["ends_at"] == (
+        started.json()["live_location"]["ends_at"]
+    )
+
+
+def test_live_location_stop_prevents_new_points(client):
+    observer = register(client, "eyewitness", "s")
+
+    started = client.post(
+        "/api/v1/messages/live-location/start",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={},
+    ).json()
+    stopped = client.post(
+        f"/api/v1/messages/{started['message_id']}/live-location/stop",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+    )
+    point_after_stop = client.post(
+        f"/api/v1/messages/{started['message_id']}/live-location/points",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"latitude": 55.7558, "longitude": 37.6173},
+    )
+
+    assert stopped.status_code == 200
+    stopped_at = datetime.fromisoformat(
+        stopped.json()["live_location"]["ends_at"].replace("Z", "+00:00")
+    )
+    original_ends_at = datetime.fromisoformat(
+        started["live_location"]["ends_at"].replace("Z", "+00:00")
+    )
+    assert stopped_at < original_ends_at
+    assert point_after_stop.status_code == 403
+    assert point_after_stop.json()["detail"] == "Live location session has ended"
+
+
+def test_only_live_location_sender_can_add_points(client):
+    observer = register(client, "eyewitness", "t")
+    chief = register(client, "employee", "u")
+
+    started = client.post(
+        "/api/v1/messages/live-location/start",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={},
+    ).json()
+
+    response = client.post(
+        f"/api/v1/messages/{started['message_id']}/live-location/points",
+        headers=auth_headers(chief["access_token"], "employee"),
+        json={"latitude": 55.7558, "longitude": 37.6173},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only live location sender can update this session"

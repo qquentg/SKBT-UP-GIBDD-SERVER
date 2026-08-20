@@ -100,7 +100,7 @@ CHIEF     - Начальник
 
 ## Список эндпоинтов
 
-Сейчас реализовано 12 эндпоинтов:
+Сейчас реализовано 16 эндпоинтов:
 
 ```text
 GET    /health
@@ -112,6 +112,10 @@ DELETE /api/v1/employee/devices/{device_id}/role
 POST   /api/v1/messages
 POST   /api/v1/messages/static-location
 POST   /api/v1/messages/media
+POST   /api/v1/messages/live-location/start
+POST   /api/v1/messages/{message_id}/live-location/points
+POST   /api/v1/messages/{message_id}/live-location/stop
+GET    /api/v1/messages/{message_id}/live-location/points
 GET    /api/v1/chats
 GET    /api/v1/chats/{observer_device_id}/messages
 PATCH  /api/v1/messages/{message_id}/delivered
@@ -606,9 +610,8 @@ curl -X DELETE http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a
 TEXT
 STATIC_LOCATION
 MEDIA
+LIVE_LOCATION
 ```
-
-Тип `LIVE_LOCATION` есть в ERD, но будет реализован отдельным срезом.
 
 ### Заголовки для Очевидца
 
@@ -662,6 +665,7 @@ CHIEF
   "text": "Нужна помощь на дороге",
   "static_location": null,
   "media": null,
+  "live_location": null,
   "created_at": "2026-08-20T13:30:00Z",
   "delivered_at": null
 }
@@ -766,6 +770,7 @@ longitude от -180 до 180
     "longitude": 37.6173
   },
   "media": null,
+  "live_location": null,
   "created_at": "2026-08-20T13:31:00Z",
   "delivered_at": null
 }
@@ -831,9 +836,214 @@ mime_type   - MIME-тип файла
     "mime_type": "image/jpeg",
     "last_viewed_at": null
   },
+  "live_location": null,
   "created_at": "2026-08-20T13:32:00Z",
   "delivered_at": null
 }
+```
+
+## POST /api/v1/messages/live-location/start
+
+Начинает live-трансляцию геолокации.
+
+Это соответствует таблице `live_location_sessions` из ERD.
+
+При старте backend создает сообщение:
+
+```text
+message_type = LIVE_LOCATION
+```
+
+и live-сессию:
+
+```text
+ends_at = текущее время + 15 минут
+```
+
+Доступ:
+
+```text
+Очевидец  - начинает трансляцию в своем чате
+Сотрудник - начинает трансляцию в чате конкретного Очевидца
+```
+
+Для Очевидца `observer_device_id` не нужен.
+
+Для Сотрудника `observer_device_id` обязателен.
+
+### Тело запроса от Очевидца
+
+```json
+{}
+```
+
+### Тело запроса от Сотрудника
+
+```json
+{
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001"
+}
+```
+
+### Ответ
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0004",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "LIVE_LOCATION",
+  "text": null,
+  "static_location": null,
+  "media": null,
+  "live_location": {
+    "ends_at": "2026-08-20T13:47:00Z"
+  },
+  "created_at": "2026-08-20T13:32:00Z",
+  "delivered_at": null
+}
+```
+
+## POST /api/v1/messages/{message_id}/live-location/points
+
+Добавляет точку в live-трансляцию.
+
+Это соответствует таблице `location_points` из ERD.
+
+Точку может добавить только то устройство, которое начало эту live-трансляцию.
+
+После `ends_at` новые точки не принимаются.
+
+### Тело запроса
+
+```json
+{
+  "latitude": 55.7558,
+  "longitude": 37.6173
+}
+```
+
+Ограничения:
+
+```text
+latitude  от -90 до 90
+longitude от -180 до 180
+```
+
+### Ответ
+
+```json
+{
+  "recorded_at": "2026-08-20T13:33:00Z",
+  "latitude": 55.7558,
+  "longitude": 37.6173
+}
+```
+
+Если трансляция уже завершена:
+
+```json
+{
+  "detail": "Live location session has ended"
+}
+```
+
+Статус: `403 Forbidden`.
+
+Если точку пытается добавить не отправитель live-трансляции:
+
+```json
+{
+  "detail": "Only live location sender can update this session"
+}
+```
+
+Статус: `403 Forbidden`.
+
+## POST /api/v1/messages/{message_id}/live-location/stop
+
+Завершает live-трансляцию раньше 15 минут.
+
+Завершить трансляцию может только то устройство, которое ее начало.
+
+Backend ставит:
+
+```text
+ends_at = текущее время
+```
+
+### Ответ
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0004",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "LIVE_LOCATION",
+  "text": null,
+  "static_location": null,
+  "media": null,
+  "live_location": {
+    "ends_at": "2026-08-20T13:35:00Z"
+  },
+  "created_at": "2026-08-20T13:32:00Z",
+  "delivered_at": null
+}
+```
+
+## GET /api/v1/messages/{message_id}/live-location/points
+
+Возвращает точки live-трансляции.
+
+Доступ:
+
+```text
+Очевидец  - только точки своего чата
+Сотрудник - точки любого чата, если есть роль INSPECTOR / ADMIN / CHIEF
+```
+
+### Пример запроса
+
+```bash
+curl http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0004/live-location/points \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: employee"
+```
+
+### Ответ
+
+```json
+{
+  "points": [
+    {
+      "recorded_at": "2026-08-20T13:33:00Z",
+      "latitude": 55.7558,
+      "longitude": 37.6173
+    }
+  ]
+}
+```
+
+### Догрузка новых точек
+
+Можно передать `after_recorded_at`, чтобы получить точки после уже сохраненной точки:
+
+```text
+GET /api/v1/messages/{message_id}/live-location/points?after_recorded_at=2026-08-20T13:33:00Z
+```
+
+Также есть параметр `limit`:
+
+```text
+GET /api/v1/messages/{message_id}/live-location/points?limit=100
+```
+
+Ограничения:
+
+```text
+limit минимум 1
+limit максимум 300
+по умолчанию 100
 ```
 
 ## GET /api/v1/chats
@@ -879,6 +1089,7 @@ curl http://193.124.115.164:4401/api/v1/chats \
       "last_text": "Нужна помощь на дороге",
       "last_static_location": null,
       "last_media": null,
+      "last_live_location": null,
       "last_created_at": "2026-08-20T13:30:00Z",
       "last_delivered_at": null
     }
@@ -928,6 +1139,7 @@ curl http://193.124.115.164:4401/api/v1/chats/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b00
       "text": "Нужна помощь на дороге",
       "static_location": null,
       "media": null,
+      "live_location": null,
       "created_at": "2026-08-20T13:30:00Z",
       "delivered_at": null
     }
@@ -1063,6 +1275,8 @@ curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae3
 10. Чтобы отправить текст в чат Очевидца, вызвать `POST /api/v1/messages` с `observer_device_id`.
 11. Чтобы отправить точку в чат Очевидца, вызвать `POST /api/v1/messages/static-location` с `observer_device_id`.
 12. Чтобы отправить медиа в чат Очевидца, вызвать `POST /api/v1/messages/media` с `observer_device_id`.
+13. Чтобы начать live-геолокацию в чате Очевидца, вызвать `POST /api/v1/messages/live-location/start` с `observer_device_id`.
+14. Чтобы получить точки live-геолокации, вызвать `GET /api/v1/messages/{message_id}/live-location/points`.
 
 Минимальный порядок работы для приложения Очевидца:
 
@@ -1071,15 +1285,17 @@ curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae3
 3. Чтобы отправить текстовое сообщение, вызвать `POST /api/v1/messages`.
 4. Чтобы отправить точку, вызвать `POST /api/v1/messages/static-location`.
 5. Чтобы отправить медиа, вызвать `POST /api/v1/messages/media`.
-6. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
-7. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
+6. Чтобы начать live-геолокацию, вызвать `POST /api/v1/messages/live-location/start`.
+7. Чтобы добавить точку live-геолокации, вызвать `POST /api/v1/messages/{message_id}/live-location/points`.
+8. Чтобы завершить live-геолокацию, вызвать `POST /api/v1/messages/{message_id}/live-location/stop`.
+9. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
+10. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
 
 ## Что еще не реализовано
 
 Эти части есть в общей схеме системы, но в текущем backend-срезе еще не сделаны:
 
 ```text
-live-геолокация
 баны
 push-уведомления
 WebSocket / real-time события
