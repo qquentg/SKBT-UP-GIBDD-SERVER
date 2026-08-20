@@ -1,8 +1,11 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 
+from app.core.config import get_settings
 from app.db.database import database_proxy
 from app.models.device import Device, utc_now
 from app.models.live_location_session import LiveLocationSession
@@ -15,6 +18,7 @@ from app.schemas.messages import MessageType
 
 EMPLOYEE_CHAT_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
 LIVE_LOCATION_DURATION = timedelta(minutes=15)
+MEDIA_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 
 
 def require_employee_chat_access(device: Device) -> None:
@@ -125,6 +129,46 @@ def create_media_message(
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
     return message
+
+
+def create_uploaded_media_message(
+    *,
+    sender: Device,
+    client_app: ClientApp,
+    filename: str | None,
+    mime_type: str | None,
+    content: bytes,
+    observer_device_id: UUID | None,
+) -> Message:
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Media file cannot be empty",
+        )
+    if len(content) > MEDIA_UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Media file is too large",
+        )
+
+    storage_key = _new_media_storage_key(filename)
+    file_path = _media_file_path(storage_key)
+
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(content)
+        return create_media_message(
+            sender=sender,
+            client_app=client_app,
+            storage_key=storage_key,
+            mime_type=(mime_type or "application/octet-stream").strip()
+            or "application/octet-stream",
+            observer_device_id=observer_device_id,
+        )
+    except Exception:
+        if file_path.exists():
+            file_path.unlink()
+        raise
 
 
 def create_live_location_message(
@@ -319,6 +363,44 @@ def get_message_or_404(message_id: UUID) -> Message:
     return message
 
 
+def get_media_file_for_message(
+    *,
+    actor: Device,
+    client_app: ClientApp,
+    message_id: UUID,
+) -> tuple[Path, Media]:
+    message = get_message_or_404(message_id)
+    if message.message_type != MessageType.MEDIA.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Message is not media",
+        )
+
+    _require_chat_participant(
+        actor=actor,
+        client_app=client_app,
+        observer_device_id=message.observer_device_id,
+    )
+
+    media = get_media_for_message(message)
+    if media is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media metadata not found",
+        )
+
+    file_path = _media_file_path(media.storage_key)
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Media file not found",
+        )
+
+    Media.update(last_viewed_at=utc_now()).where(Media.message == message.id).execute()
+    media = Media.get_by_id(message.id)
+    return file_path, media
+
+
 def get_static_location_for_message(message: Message) -> StaticLocation | None:
     if message.message_type != MessageType.STATIC_LOCATION.value:
         return None
@@ -415,3 +497,24 @@ def _as_utc_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _new_media_storage_key(filename: str | None) -> str:
+    now = utc_now()
+    suffix = Path(filename or "").suffix.lower()
+    if len(suffix) > 16 or not suffix.startswith(".") or not suffix[1:].isalnum():
+        suffix = ""
+    return f"{now:%Y/%m}/{uuid4().hex}{suffix}"
+
+
+def _media_file_path(storage_key: str) -> Path:
+    root = Path(get_settings().media_storage_dir).resolve()
+    file_path = (root / storage_key).resolve()
+    try:
+        file_path.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid media storage_key",
+        ) from exc
+    return file_path

@@ -2,7 +2,18 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from fastapi.responses import FileResponse
 
 from app.api.dependencies import get_authorized_device, require_employee_client
 from app.models.device import Device
@@ -26,12 +37,15 @@ from app.schemas.messages import (
     StaticLocationResponse,
 )
 from app.services.messages import (
+    MEDIA_UPLOAD_MAX_BYTES,
     add_live_location_point,
     create_live_location_message,
     create_media_message,
     create_static_location_message,
     create_text_message,
+    create_uploaded_media_message,
     get_live_location_session_for_message,
+    get_media_file_for_message,
     get_media_for_message,
     get_static_location_for_message,
     list_chat_messages,
@@ -93,6 +107,25 @@ def post_media_message(
         storage_key=payload.storage_key,
         mime_type=payload.mime_type,
         observer_device_id=payload.observer_device_id,
+    )
+    return _message_response(message)
+
+
+@router.post("/api/v1/messages/media/upload", response_model=MessageResponse)
+async def post_media_upload(
+    file: UploadFile = File(...),
+    observer_device_id: Annotated[UUID | None, Form()] = None,
+    client_app: ClientApp = Header(alias="X-Client-App"),
+    sender: Device = Depends(get_authorized_device),
+) -> MessageResponse:
+    content = await file.read(MEDIA_UPLOAD_MAX_BYTES + 1)
+    message = create_uploaded_media_message(
+        sender=sender,
+        client_app=client_app,
+        filename=file.filename,
+        mime_type=file.content_type,
+        content=content,
+        observer_device_id=observer_device_id,
     )
     return _message_response(message)
 
@@ -165,6 +198,24 @@ def get_live_location_points(
     )
     return LocationPointsResponse(
         points=[_location_point_response(point) for point in points]
+    )
+
+
+@router.get("/api/v1/messages/{message_id}/media")
+def get_media_file(
+    message_id: UUID,
+    client_app: ClientApp = Header(alias="X-Client-App"),
+    actor: Device = Depends(get_authorized_device),
+) -> FileResponse:
+    file_path, media = get_media_file_for_message(
+        actor=actor,
+        client_app=client_app,
+        message_id=message_id,
+    )
+    return FileResponse(
+        path=file_path,
+        media_type=media.mime_type,
+        filename=file_path.name,
     )
 
 

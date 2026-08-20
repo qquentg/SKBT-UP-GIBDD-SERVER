@@ -100,7 +100,7 @@ CHIEF     - Начальник
 
 ## Список эндпоинтов
 
-Сейчас реализовано 16 эндпоинтов:
+Сейчас реализовано 18 эндпоинтов:
 
 ```text
 GET    /health
@@ -112,6 +112,8 @@ DELETE /api/v1/employee/devices/{device_id}/role
 POST   /api/v1/messages
 POST   /api/v1/messages/static-location
 POST   /api/v1/messages/media
+POST   /api/v1/messages/media/upload
+GET    /api/v1/messages/{message_id}/media
 POST   /api/v1/messages/live-location/start
 POST   /api/v1/messages/{message_id}/live-location/points
 POST   /api/v1/messages/{message_id}/live-location/stop
@@ -789,7 +791,9 @@ storage_key - ключ/путь файла в хранилище
 mime_type   - MIME-тип файла
 ```
 
-Загрузку файла в файловое хранилище можно сделать отдельным срезом. Для текущего API достаточно передать `storage_key`.
+Этот endpoint не принимает сам файл. Он нужен только для случая, когда файл уже сохранен где-то отдельно, а backend получает готовый `storage_key`.
+
+Если Android-приложение хочет отправить фото из `Uri`, нужно использовать `POST /api/v1/messages/media/upload`.
 
 Доступ:
 
@@ -840,6 +844,105 @@ mime_type   - MIME-тип файла
   "created_at": "2026-08-20T13:32:00Z",
   "delivered_at": null
 }
+```
+
+## POST /api/v1/messages/media/upload
+
+Загружает сам файл на backend и создает сообщение типа `MEDIA`.
+
+Это основной endpoint для Android, когда у приложения есть `Uri` фотографии или другого файла.
+
+Формат запроса: `multipart/form-data`.
+
+Заголовки:
+
+```text
+Authorization: Bearer <access_token>
+X-Client-App: eyewitness
+```
+
+Поля формы:
+
+```text
+file - сам файл
+```
+
+Для Очевидца `observer_device_id` не нужен: сообщение попадет в его собственный чат.
+
+Для Сотрудника нужно дополнительно передать:
+
+```text
+observer_device_id - device_id Очевидца, в чей чат отправляется файл
+```
+
+Ограничение размера файла: до 10 MB.
+
+Пример через curl от Очевидца:
+
+```bash
+curl -X POST http://193.124.115.164:4401/api/v1/messages/media/upload \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: eyewitness" \
+  -F "file=@photo.jpg;type=image/jpeg"
+```
+
+Пример через curl от Сотрудника:
+
+```bash
+curl -X POST http://193.124.115.164:4401/api/v1/messages/media/upload \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: employee" \
+  -F "observer_device_id=2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001" \
+  -F "file=@photo.jpg;type=image/jpeg"
+```
+
+Ответ такой же, как у `POST /api/v1/messages/media`.
+
+В ответе поле `media.storage_key` возвращается для информации. Фронту не нужно самому формировать этот ключ при загрузке файла: backend создаст его автоматически.
+
+Частые ошибки:
+
+```text
+400 - observer_device_id is required for employee messages
+403 - нет доступа к чату
+413 - Media file is too large
+422 - Media file cannot be empty
+```
+
+## GET /api/v1/messages/{message_id}/media
+
+Возвращает файл медиа-сообщения.
+
+Нужны те же заголовки авторизации:
+
+```text
+Authorization: Bearer <access_token>
+X-Client-App: eyewitness или employee
+```
+
+Доступ:
+
+```text
+Очевидец  - может скачать медиа только из своего чата
+Сотрудник - может скачать медиа из чатов, если у него есть роль INSPECTOR, ADMIN или CHIEF
+```
+
+Пример:
+
+```bash
+curl http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0003/media \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: employee" \
+  --output photo.jpg
+```
+
+Частые ошибки:
+
+```text
+400 - Message is not media
+403 - нет доступа к чату
+404 - Message not found
+404 - Media file not found
 ```
 
 ## POST /api/v1/messages/live-location/start
@@ -1274,7 +1377,7 @@ curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae3
 9. Чтобы открыть чат, вызвать `GET /api/v1/chats/{observer_device_id}/messages`.
 10. Чтобы отправить текст в чат Очевидца, вызвать `POST /api/v1/messages` с `observer_device_id`.
 11. Чтобы отправить точку в чат Очевидца, вызвать `POST /api/v1/messages/static-location` с `observer_device_id`.
-12. Чтобы отправить медиа в чат Очевидца, вызвать `POST /api/v1/messages/media` с `observer_device_id`.
+12. Чтобы отправить файл в чат Очевидца, вызвать `POST /api/v1/messages/media/upload` с `observer_device_id`.
 13. Чтобы начать live-геолокацию в чате Очевидца, вызвать `POST /api/v1/messages/live-location/start` с `observer_device_id`.
 14. Чтобы получить точки live-геолокации, вызвать `GET /api/v1/messages/{message_id}/live-location/points`.
 
@@ -1284,7 +1387,7 @@ curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae3
 2. Сохранить `device_id` и `access_token`.
 3. Чтобы отправить текстовое сообщение, вызвать `POST /api/v1/messages`.
 4. Чтобы отправить точку, вызвать `POST /api/v1/messages/static-location`.
-5. Чтобы отправить медиа, вызвать `POST /api/v1/messages/media`.
+5. Чтобы отправить файл, вызвать `POST /api/v1/messages/media/upload`.
 6. Чтобы начать live-геолокацию, вызвать `POST /api/v1/messages/live-location/start`.
 7. Чтобы добавить точку live-геолокации, вызвать `POST /api/v1/messages/{message_id}/live-location/points`.
 8. Чтобы завершить live-геолокацию, вызвать `POST /api/v1/messages/{message_id}/live-location/stop`.

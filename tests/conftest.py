@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from peewee import SqliteDatabase
 
+from app.core.config import get_settings
 from app.db.database import create_tables, database_proxy
 from app.main import create_app
 from app.models.device import Device
@@ -14,7 +15,10 @@ from app.models.static_location import StaticLocation
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEDIA_STORAGE_DIR", str(tmp_path / "media"))
+    get_settings.cache_clear()
+
     test_database = SqliteDatabase(tmp_path / "test.db")
     database_proxy.initialize(test_database)
     test_database.bind(
@@ -33,3 +37,4 @@ def client(tmp_path):
         safe=True,
     )
     test_database.close()
+    get_settings.cache_clear()

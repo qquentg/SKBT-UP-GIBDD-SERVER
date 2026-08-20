@@ -249,6 +249,85 @@ def test_employee_sends_media_to_observer_chat(client):
     )
 
 
+def test_eyewitness_uploads_media_file_and_employee_downloads_it(client):
+    observer = register(client, "eyewitness", "v")
+    chief = register(client, "employee", "w")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("photo.jpg", b"jpeg-bytes", "image/jpeg")},
+    )
+    downloaded = client.get(
+        f"/api/v1/messages/{created.json()['message_id']}/media",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["message_type"] == "MEDIA"
+    assert created.json()["observer_device_id"] == observer["device_id"]
+    assert created.json()["sender_device_id"] == observer["device_id"]
+    assert created.json()["media"]["mime_type"] == "image/jpeg"
+    assert created.json()["media"]["storage_key"].endswith(".jpg")
+    assert Media.select().count() == 1
+
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"jpeg-bytes"
+    assert downloaded.headers["content-type"] == "image/jpeg"
+    media = Media.get()
+    assert media.last_viewed_at is not None
+
+
+def test_employee_uploads_media_file_to_observer_chat(client):
+    observer = register(client, "eyewitness", "x")
+    chief = register(client, "employee", "y")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(chief["access_token"], "employee"),
+        data={"observer_device_id": observer["device_id"]},
+        files={"file": ("answer.png", b"png-bytes", "image/png")},
+    )
+
+    assert created.status_code == 200
+    assert created.json()["message_type"] == "MEDIA"
+    assert created.json()["observer_device_id"] == observer["device_id"]
+    assert created.json()["sender_device_id"] == chief["device_id"]
+    assert created.json()["media"]["mime_type"] == "image/png"
+    assert created.json()["media"]["storage_key"].endswith(".png")
+
+
+def test_media_download_requires_chat_access(client):
+    observer = register(client, "eyewitness", "0")
+    other_observer = register(client, "eyewitness", "1")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("photo.jpg", b"jpeg-bytes", "image/jpeg")},
+    )
+    downloaded = client.get(
+        f"/api/v1/messages/{created.json()['message_id']}/media",
+        headers=auth_headers(other_observer["access_token"], "eyewitness"),
+    )
+
+    assert downloaded.status_code == 403
+    assert downloaded.json()["detail"] == "Eyewitness can only access own chat"
+
+
+def test_empty_media_upload_is_rejected(client):
+    observer = register(client, "eyewitness", "2")
+
+    created = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("empty.jpg", b"", "image/jpeg")},
+    )
+
+    assert created.status_code == 422
+    assert created.json()["detail"] == "Media file cannot be empty"
+
+
 def test_common_message_endpoint_accepts_only_text(client):
     observer = register(client, "eyewitness", "p")
 

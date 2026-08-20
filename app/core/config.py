@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     db_host: str = Field(default="127.0.0.1", validation_alias="DB_HOST")
     db_port: int = Field(default=5432, validation_alias="DB_PORT")
 
+    media_storage_dir: str = Field(
+        default="storage/media",
+        validation_alias="MEDIA_STORAGE_DIR",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
