@@ -6,7 +6,7 @@
 
 - `GET /health`
 - `POST /api/v1/devices/register`
-- Peewee-модели `devices`, `role_events`, `messages`, `media`, `static_locations`, `live_location_sessions`, `location_points`
+- Peewee-модели `devices`, `role_events`, `messages`, `media`, `static_locations`, `live_location_sessions`, `location_points`, `bans`
 - регистрация устройства по `fingerprint_hash`
 - разделение сценариев через `X-Client-App: eyewitness|employee`
 - автоматическое назначение первого `CHIEF` для employee-сценария
@@ -16,8 +16,9 @@
 - статическая геолокация
 - live-геолокация на 15 минут
 - загрузка и скачивание медиа-файлов с TTL 7 дней
+- блокировка Очевидца: 1 сутки, 30 дней, постоянный бан
 
-Не добавлены: WebSocket, bans, push, Excel, Docker.
+Не добавлены: WebSocket, push, Excel, Docker.
 
 ## Требования
 

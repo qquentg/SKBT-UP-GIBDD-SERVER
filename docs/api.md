@@ -100,7 +100,7 @@ CHIEF     - Начальник
 
 ## Список эндпоинтов
 
-Сейчас реализовано 18 эндпоинтов:
+Сейчас реализовано 21 эндпоинт:
 
 ```text
 GET    /health
@@ -109,6 +109,9 @@ GET    /api/v1/employee/me
 GET    /api/v1/employee/devices/{device_id}
 PUT    /api/v1/employee/devices/{device_id}/role
 DELETE /api/v1/employee/devices/{device_id}/role
+POST   /api/v1/employee/devices/{device_id}/ban
+GET    /api/v1/employee/devices/{device_id}/bans
+GET    /api/v1/employee/devices/{device_id}/bans/active
 POST   /api/v1/messages
 POST   /api/v1/messages/static-location
 POST   /api/v1/messages/media
@@ -595,6 +598,161 @@ curl -X DELETE http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a
 404 - устройство не найдено
 422 - device_id не UUID
 ```
+
+## POST /api/v1/employee/devices/{device_id}/ban
+
+Блокирует Очевидца.
+
+`device_id` здесь - это `device_id` Очевидца, чей чат блокируется.
+
+Доступ:
+
+```text
+INSPECTOR
+ADMIN
+CHIEF
+```
+
+Уровень блокировки считается по истории банов этого Очевидца:
+
+```text
+1-й бан: 1 сутки
+2-й бан: 30 дней
+3-й бан и дальше: постоянный бан
+```
+
+В таблице `bans` не хранится `ban_number` или `ban_type`. Backend считает номер бана по истории.
+
+Если у Очевидца уже есть активный бан, повторный запрос вернет текущий активный бан и не создаст новый.
+
+### Пример запроса
+
+```bash
+curl -X POST http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/ban \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: employee"
+```
+
+### Ответ
+
+```json
+{
+  "ban_id": "8fdc98ed-fb31-41a6-b77e-6e12c26ec9a1",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "issued_by_device_id": "0f41d9ac-528b-4911-8a4c-b3546d32308c",
+  "started_at": "2026-08-21T13:30:00Z",
+  "ends_at": "2026-08-22T13:30:00Z",
+  "ban_number": 1,
+  "is_active": true
+}
+```
+
+Для постоянного бана:
+
+```json
+{
+  "ends_at": null
+}
+```
+
+### Ошибки
+
+```text
+401 - нет токена или токен неправильный
+403 - Ban is not allowed for this device
+404 - Observer device not found
+422 - device_id не UUID
+```
+
+## GET /api/v1/employee/devices/{device_id}/bans
+
+Возвращает историю банов Очевидца.
+
+Нужна роль:
+
+```text
+INSPECTOR
+ADMIN
+CHIEF
+```
+
+Пример:
+
+```bash
+curl http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/bans \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: employee"
+```
+
+Ответ:
+
+```json
+{
+  "bans": [
+    {
+      "ban_id": "8fdc98ed-fb31-41a6-b77e-6e12c26ec9a1",
+      "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+      "issued_by_device_id": "0f41d9ac-528b-4911-8a4c-b3546d32308c",
+      "started_at": "2026-08-21T13:30:00Z",
+      "ends_at": "2026-08-22T13:30:00Z",
+      "ban_number": 1,
+      "is_active": true
+    }
+  ]
+}
+```
+
+## GET /api/v1/employee/devices/{device_id}/bans/active
+
+Возвращает активный бан Очевидца, если он есть.
+
+Если активного бана нет:
+
+```json
+{
+  "ban": null
+}
+```
+
+Если активный бан есть:
+
+```json
+{
+  "ban": {
+    "ban_id": "8fdc98ed-fb31-41a6-b77e-6e12c26ec9a1",
+    "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "issued_by_device_id": "0f41d9ac-528b-4911-8a4c-b3546d32308c",
+    "started_at": "2026-08-21T13:30:00Z",
+    "ends_at": "2026-08-22T13:30:00Z",
+    "ban_number": 1,
+    "is_active": true
+  }
+}
+```
+
+## Что меняется для забаненного Очевидца
+
+Если Очевидец забанен, он не может отправлять:
+
+```text
+POST /api/v1/messages
+POST /api/v1/messages/static-location
+POST /api/v1/messages/media/upload
+POST /api/v1/messages/live-location/start
+POST /api/v1/messages/{message_id}/live-location/points
+```
+
+Ответ:
+
+```json
+{
+  "detail": "Observer device is banned"
+}
+```
+
+Статус: `403 Forbidden`.
+
+Сотрудники при этом могут читать чат и отправлять ответы в чат этого Очевидца.
 
 ## POST /api/v1/messages
 
@@ -1408,8 +1566,10 @@ curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae3
 10. Чтобы отправить текст в чат Очевидца, вызвать `POST /api/v1/messages` с `observer_device_id`.
 11. Чтобы отправить точку в чат Очевидца, вызвать `POST /api/v1/messages/static-location` с `observer_device_id`.
 12. Чтобы отправить файл в чат Очевидца, вызвать `POST /api/v1/messages/media/upload` с `observer_device_id`.
-13. Чтобы начать live-геолокацию в чате Очевидца, вызвать `POST /api/v1/messages/live-location/start` с `observer_device_id`.
-14. Чтобы получить точки live-геолокации, вызвать `GET /api/v1/messages/{message_id}/live-location/points`.
+13. Чтобы заблокировать Очевидца, вызвать `POST /api/v1/employee/devices/{observer_device_id}/ban`.
+14. Чтобы проверить активный бан, вызвать `GET /api/v1/employee/devices/{observer_device_id}/bans/active`.
+15. Чтобы начать live-геолокацию в чате Очевидца, вызвать `POST /api/v1/messages/live-location/start` с `observer_device_id`.
+16. Чтобы получить точки live-геолокации, вызвать `GET /api/v1/messages/{message_id}/live-location/points`.
 
 Минимальный порядок работы для приложения Очевидца:
 
@@ -1429,7 +1589,6 @@ curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae3
 Эти части есть в общей схеме системы, но в текущем backend-срезе еще не сделаны:
 
 ```text
-баны
 push-уведомления
 WebSocket / real-time события
 ```

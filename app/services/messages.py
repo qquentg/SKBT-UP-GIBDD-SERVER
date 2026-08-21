@@ -15,6 +15,7 @@ from app.models.message import Message
 from app.models.static_location import StaticLocation
 from app.schemas.device import ClientApp
 from app.schemas.messages import MessageType
+from app.services.bans import get_active_ban
 
 EMPLOYEE_CHAT_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
 LIVE_LOCATION_DURATION = timedelta(minutes=15)
@@ -220,6 +221,8 @@ def add_live_location_point(
 ) -> LocationPoint:
     message = _get_live_location_message_or_404(message_id)
     _require_live_location_sender(actor=actor, message=message)
+    if client_app == ClientApp.EYEWITNESS:
+        _require_observer_not_banned(actor.id)
     _require_chat_participant(
         actor=actor,
         client_app=client_app,
@@ -464,6 +467,7 @@ def _resolve_observer_device(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Eyewitness can only write to own chat",
             )
+        _require_observer_not_banned(sender.id)
         return sender
 
     require_employee_chat_access(sender)
@@ -504,6 +508,14 @@ def _require_chat_participant(
         return
 
     require_employee_chat_access(actor)
+
+
+def _require_observer_not_banned(observer_device_id: UUID) -> None:
+    if get_active_ban(observer_device_id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Observer device is banned",
+        )
 
 
 def _get_live_location_message_or_404(message_id: UUID) -> Message:

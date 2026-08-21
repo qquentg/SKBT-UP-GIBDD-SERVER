@@ -27,6 +27,7 @@ def close_database() -> None:
 
 
 def create_tables() -> None:
+    from app.models.ban import Ban
     from app.models.device import Device
     from app.models.live_location_session import LiveLocationSession
     from app.models.location_point import LocationPoint
@@ -36,7 +37,16 @@ def create_tables() -> None:
     from app.models.static_location import StaticLocation
 
     database_proxy.create_tables(
-        [Device, RoleEvent, Message, StaticLocation, Media, LiveLocationSession, LocationPoint],
+        [
+            Device,
+            RoleEvent,
+            Message,
+            StaticLocation,
+            Media,
+            LiveLocationSession,
+            LocationPoint,
+            Ban,
+        ],
         safe=True,
     )
     database_proxy.execute_sql("DROP INDEX IF EXISTS devices_single_chief_idx")
