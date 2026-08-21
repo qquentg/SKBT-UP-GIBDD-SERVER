@@ -7,34 +7,40 @@
 Публичный тестовый сервер для APK:
 
 ```text
-http://193.124.115.164:4401
+https://силенок.рф:4401
 ```
 
 Для Retrofit/OkHttp base URL обычно нужно указывать со слешем в конце:
 
 ```text
-http://193.124.115.164:4401/
+https://силенок.рф:4401/
 ```
 
-Важно: сейчас API работает по `http`, не по `https`.
+Если Android Studio, Gradle или HTTP-клиент плохо обрабатывает кириллический домен, можно использовать punycode-адрес. Это тот же самый домен:
 
-Для Android-приложения на время тестов может понадобиться разрешить cleartext traffic:
+```text
+https://xn--e1afhclgq.xn--p1ai:4401/
+```
+
+API работает по HTTPS с обычным доверенным сертификатом Let's Encrypt. Для рабочего адреса не нужно включать `android:usesCleartextTraffic="true"`.
+
+Для Android-приложения все равно нужно разрешение на интернет:
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
 ```
 
-и в `application`:
+Если в приложении раньше был включен cleartext только ради `http://193.124.115.164:4401`, после перехода на HTTPS это больше не требуется:
 
 ```xml
-android:usesCleartextTraffic="true"
+android:usesCleartextTraffic="true"  <!-- больше не нужно для https://силенок.рф:4401 -->
 ```
 
-Если Retrofit случайно настроен на `https://193.124.115.164:4401/`, запрос не пройдет: на порту `4401` сейчас обычный HTTP.
+Если Retrofit настроен на старый адрес `http://193.124.115.164:4401/`, запросы после перехода на HTTPS могут не работать. Нужно использовать `https://силенок.рф:4401/`.
 
 Если backend запущен на другом порту, меняется только базовый адрес. Пути эндпоинтов остаются такими же.
 
-Веб-порты `80` и `443` не используются для этого API, поэтому публичный тестовый порт backend: `4401`.
+Публичный порт нашего backend API: `4401`. Второй backend может использовать другой порт, например `4402`.
 
 FastAPI также автоматически отдает интерактивную документацию:
 
@@ -135,7 +141,7 @@ PATCH  /api/v1/messages/{message_id}/delivered
 Пример запроса:
 
 ```bash
-curl http://193.124.115.164:4401/health
+curl https://силенок.рф:4401/health
 ```
 
 Ответ `200 OK`:
@@ -229,7 +235,7 @@ Frontend должен заменить старый токен на новый.
 ### Пример curl
 
 ```bash
-curl -X POST http://193.124.115.164:4401/api/v1/devices/register \
+curl -X POST https://силенок.рф:4401/api/v1/devices/register \
   -H "Content-Type: application/json" \
   -H "X-Client-App: employee" \
   -d "{\"fingerprint_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"push_token\":null}"
@@ -309,7 +315,7 @@ X-Client-App: employee
 ### Пример запроса
 
 ```bash
-curl http://193.124.115.164:4401/api/v1/employee/me \
+curl https://силенок.рф:4401/api/v1/employee/me \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -350,7 +356,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003 \
+curl https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003 \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -444,7 +450,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl -X PUT http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
+curl -X PUT https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee" \
@@ -557,7 +563,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl -X DELETE http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
+curl -X DELETE https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003/role \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -628,7 +634,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl -X POST http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/ban \
+curl -X POST https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/ban \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -679,7 +685,7 @@ CHIEF
 Пример:
 
 ```bash
-curl http://193.124.115.164:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/bans \
+curl https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/bans \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -1065,7 +1071,7 @@ GIF:      до 100 MB
 Пример через curl от Очевидца:
 
 ```bash
-curl -X POST http://193.124.115.164:4401/api/v1/messages/media/upload \
+curl -X POST https://силенок.рф:4401/api/v1/messages/media/upload \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: eyewitness" \
   -F "file=@photo.jpg;type=image/jpeg"
@@ -1074,7 +1080,7 @@ curl -X POST http://193.124.115.164:4401/api/v1/messages/media/upload \
 Пример через curl от Сотрудника:
 
 ```bash
-curl -X POST http://193.124.115.164:4401/api/v1/messages/media/upload \
+curl -X POST https://силенок.рф:4401/api/v1/messages/media/upload \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee" \
   -F "observer_device_id=2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001" \
@@ -1117,7 +1123,7 @@ X-Client-App: eyewitness или employee
 Пример:
 
 ```bash
-curl http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0003/media \
+curl https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0003/media \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee" \
   --output photo.jpg
@@ -1296,7 +1302,7 @@ ends_at = текущее время
 ### Пример запроса
 
 ```bash
-curl http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0004/live-location/points \
+curl https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0004/live-location/points \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -1363,7 +1369,7 @@ CHIEF
 ### Пример запроса
 
 ```bash
-curl http://193.124.115.164:4401/api/v1/chats \
+curl https://силенок.рф:4401/api/v1/chats \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -1412,7 +1418,7 @@ curl http://193.124.115.164:4401/api/v1/chats \
 ### Пример запроса
 
 ```bash
-curl http://193.124.115.164:4401/api/v1/chats/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/messages \
+curl https://силенок.рф:4401/api/v1/chats/2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001/messages \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
@@ -1521,7 +1527,7 @@ delivered_at заполнено  сообщение доставлено
 ### Пример запроса
 
 ```bash
-curl -X PATCH http://193.124.115.164:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0001/delivered \
+curl -X PATCH https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5fb5bb2b0001/delivered \
   -H "Authorization: Bearer <access_token>" \
   -H "X-Client-App: employee"
 ```
