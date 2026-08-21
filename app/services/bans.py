@@ -110,5 +110,9 @@ def _get_device_or_404(device_id: UUID) -> Device:
 
 def _as_utc_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
+        return value.replace(tzinfo=_local_timezone()).astimezone(UTC)
     return value.astimezone(UTC)
+
+
+def _local_timezone():
+    return datetime.now().astimezone().tzinfo

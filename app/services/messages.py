@@ -538,8 +538,12 @@ def _require_live_location_sender(*, actor: Device, message: Message) -> None:
 
 def _as_utc_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
+        return value.replace(tzinfo=_local_timezone()).astimezone(UTC)
     return value.astimezone(UTC)
+
+
+def _local_timezone():
+    return datetime.now().astimezone().tzinfo
 
 
 def _new_media_storage_key(filename: str | None) -> str:
