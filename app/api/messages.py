@@ -16,8 +16,10 @@ from fastapi import (
 from fastapi.responses import FileResponse
 
 from app.api.dependencies import get_authorized_device, require_employee_client
+from app.models.ban import Ban
 from app.models.device import Device
 from app.models.message import Message
+from app.schemas.bans import BanResponse
 from app.schemas.device import ClientApp
 from app.schemas.messages import (
     ChatMessagesResponse,
@@ -54,6 +56,7 @@ from app.services.messages import (
     mark_message_delivered,
     stop_live_location,
 )
+from app.services.bans import ban_number, get_active_ban, is_ban_active
 
 router = APIRouter(tags=["messages"])
 
@@ -302,6 +305,7 @@ def _message_response(message: Message) -> MessageResponse:
 
 def _chat_response(message: Message) -> ChatResponse:
     message_response = _message_response(message)
+    active_ban = get_active_ban(message.observer_device_id)
     return ChatResponse(
         observer_device_id=message_response.observer_device_id,
         last_message_id=message_response.message_id,
@@ -312,6 +316,19 @@ def _chat_response(message: Message) -> ChatResponse:
         last_live_location=message_response.live_location,
         last_created_at=message_response.created_at,
         last_delivered_at=message_response.delivered_at,
+        active_ban=_ban_response(active_ban) if active_ban is not None else None,
+    )
+
+
+def _ban_response(ban: Ban) -> BanResponse:
+    return BanResponse(
+        ban_id=ban.id,
+        observer_device_id=ban.observer_device_id,
+        issued_by_device_id=ban.issued_by_device_id,
+        started_at=ban.started_at,
+        ends_at=ban.ends_at,
+        ban_number=ban_number(ban),
+        is_active=is_ban_active(ban),
     )
 
 

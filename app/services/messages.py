@@ -13,7 +13,7 @@ from app.models.location_point import LocationPoint
 from app.models.media import Media
 from app.models.message import Message
 from app.models.static_location import StaticLocation
-from app.schemas.device import ClientApp
+from app.schemas.device import ClientApp, DeviceRole
 from app.schemas.messages import MessageType
 from app.services.bans import get_active_ban
 
@@ -314,6 +314,11 @@ def list_chats(actor: Device) -> list[Message]:
     for message in Message.select().order_by(Message.created_at.desc(), Message.id.desc()):
         observer_id = str(message.observer_device_id)
         if observer_id not in latest_by_observer:
+            if (
+                actor.current_role == DeviceRole.INSPECTOR.value
+                and get_active_ban(message.observer_device_id) is not None
+            ):
+                continue
             latest_by_observer[observer_id] = message
 
     return list(latest_by_observer.values())

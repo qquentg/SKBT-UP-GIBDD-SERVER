@@ -758,7 +758,18 @@ POST /api/v1/messages/{message_id}/live-location/points
 
 Статус: `403 Forbidden`.
 
-Сотрудники при этом могут читать чат и отправлять ответы в чат этого Очевидца.
+Для списка чатов действует отдельное правило видимости:
+
+```text
+CHIEF / ADMIN -> видят заблокированные чаты и получают active_ban
+INSPECTOR     -> не видит заблокированные чаты в GET /api/v1/chats
+```
+
+Статус блокировки также можно проверить отдельным endpoint:
+
+```text
+GET /api/v1/employee/devices/{observer_device_id}/bans/active
+```
 
 ## POST /api/v1/messages
 
@@ -1349,7 +1360,14 @@ limit максимум 300
 
 В базе отдельной таблицы `chats` нет. Это вычисляемое представление по таблице `messages`, сгруппированное по `observer_device_id`.
 
-Для каждого чата backend возвращает последнее сообщение.
+Для каждого чата backend возвращает последнее сообщение и активный бан, если он есть.
+
+Правило видимости заблокированных чатов:
+
+```text
+CHIEF / ADMIN -> видят заблокированные чаты
+INSPECTOR     -> не видит заблокированные чаты
+```
 
 Нужна авторизация Сотрудника:
 
@@ -1388,7 +1406,37 @@ curl https://силенок.рф:4401/api/v1/chats \
       "last_media": null,
       "last_live_location": null,
       "last_created_at": "2026-08-20T13:30:00Z",
-      "last_delivered_at": null
+      "last_delivered_at": null,
+      "active_ban": null
+    }
+  ]
+}
+```
+
+Если чат заблокирован и список запрашивает `CHIEF` или `ADMIN`, поле `active_ban` будет заполнено:
+
+```json
+{
+  "chats": [
+    {
+      "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+      "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0001",
+      "last_message_type": "TEXT",
+      "last_text": "Нужна помощь на дороге",
+      "last_static_location": null,
+      "last_media": null,
+      "last_live_location": null,
+      "last_created_at": "2026-08-20T13:30:00Z",
+      "last_delivered_at": null,
+      "active_ban": {
+        "ban_id": "8fdc98ed-fb31-41a6-b77e-6e12c26ec9a1",
+        "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+        "issued_by_device_id": "9a7e4f5c-7f38-4f91-a9b0-3d0a68d5b01a",
+        "started_at": "2026-08-21T13:30:00Z",
+        "ends_at": "2026-08-22T13:30:00Z",
+        "ban_number": 1,
+        "is_active": true
+      }
     }
   ]
 }

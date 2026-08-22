@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.bans import BanResponse
+
 
 class MessageType(StrEnum):
     TEXT = "TEXT"
@@ -84,6 +86,7 @@ class ChatResponse(BaseModel):
     last_live_location: LiveLocationResponse | None = None
     last_created_at: datetime
     last_delivered_at: datetime | None
+    active_ban: BanResponse | None = None
 
 
 class ChatsResponse(BaseModel):

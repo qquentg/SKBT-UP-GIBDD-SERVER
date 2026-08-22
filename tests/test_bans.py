@@ -99,6 +99,43 @@ def test_repeated_active_ban_does_not_escalate(client):
     assert Ban.select().count() == 1
 
 
+def test_chief_sees_banned_chat_and_inspector_does_not(client):
+    observer = register(client, "eyewitness", "M")
+    chief = register(client, "employee", "N")
+    inspector = register(client, "employee", "O")
+    assign_role(client, chief, inspector, "INSPECTOR")
+
+    message = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "TEXT", "text": "visible before ban"},
+    )
+    ban = client.post(
+        f"/api/v1/employee/devices/{observer['device_id']}/ban",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    chief_chats = client.get(
+        "/api/v1/chats",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    inspector_chats = client.get(
+        "/api/v1/chats",
+        headers=auth_headers(inspector["access_token"], "employee"),
+    )
+
+    assert message.status_code == 200
+    assert ban.status_code == 200
+
+    assert chief_chats.status_code == 200
+    assert chief_chats.json()["chats"][0]["observer_device_id"] == observer["device_id"]
+    assert chief_chats.json()["chats"][0]["active_ban"]["ban_id"] == ban.json()["ban_id"]
+    assert chief_chats.json()["chats"][0]["active_ban"]["is_active"] is True
+
+    assert inspector_chats.status_code == 200
+    assert inspector_chats.json() == {"chats": []}
+
+
 def test_ban_history_escalates_to_permanent(client):
     observer = register(client, "eyewitness", "F")
     chief = register(client, "employee", "G")

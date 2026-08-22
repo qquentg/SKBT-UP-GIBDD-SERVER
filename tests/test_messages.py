@@ -64,6 +64,7 @@ def test_eyewitness_sends_text_and_employee_reads_chat(client):
             "last_live_location": None,
             "last_created_at": created.json()["created_at"],
             "last_delivered_at": None,
+            "active_ban": None,
         }
     ]
 
