@@ -185,7 +185,7 @@ X-Client-App: employee
 
 ```text
 fingerprint_hash - обязательный хеш устройства, строка от 32 до 128 символов
-push_token       - необязательный push-токен, можно отправлять null
+push_token       - необязательный FCM push-токен устройства, можно отправлять null
 ```
 
 ### Ответ для Очевидца
@@ -229,8 +229,12 @@ push_token       - необязательный push-токен, можно от
 - `device_id` останется тем же;
 - роль останется текущей;
 - `access_token` будет новым.
+- `push_token` будет обновлен, если он передан в запросе.
 
 Frontend должен заменить старый токен на новый.
+
+Если приложение использует Firebase Cloud Messaging, Android должен получить FCM token и передать его в `push_token`.
+Если FCM token обновился, нужно повторно вызвать регистрацию с тем же `fingerprint_hash` и новым `push_token`.
 
 ### Пример curl
 
@@ -1604,11 +1608,71 @@ curl -X PATCH https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41d
 
 Статус: `404 Not Found`.
 
+## Push-уведомления
+
+Отдельных endpoint'ов для push нет.
+
+Frontend передает push-токен только в `POST /api/v1/devices/register`:
+
+```json
+{
+  "fingerprint_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "push_token": "FCM_TOKEN_FROM_ANDROID"
+}
+```
+
+Что делает backend:
+
+- сохраняет `push_token` в `devices.push_token`;
+- при повторной регистрации того же устройства обновляет `push_token`;
+- при новом сообщении от Очевидца отправляет push всем employee-устройствам с ролью `INSPECTOR`, `ADMIN` или `CHIEF`, если у них есть `push_token`;
+- при новом сообщении от Сотрудника отправляет push Очевидцу, если у него есть `push_token`;
+- при бане Очевидца отправляет push самому Очевидцу и другим `CHIEF`-устройствам;
+- при старте live-геолокации отправляет один push о новом сообщении типа `LIVE_LOCATION`;
+- при добавлении очередной точки live-геолокации push не отправляет, точки нужно получать через `GET /api/v1/messages/{message_id}/live-location/points`.
+
+Push не заменяет REST API.
+После открытия приложения frontend все равно должен получить актуальное состояние через обычные endpoint'ы: список чатов, сообщения, точки live-геолокации, статус бана.
+
+Пример данных внутри push:
+
+```json
+{
+  "event": "message_created",
+  "message_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0004",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "TEXT"
+}
+```
+
+Для бана:
+
+```json
+{
+  "event": "observer_banned",
+  "ban_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0005",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "issued_by_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002"
+}
+```
+
+На сервере для реальной доставки через Firebase должны быть настроены переменные окружения:
+
+```text
+FCM_PROJECT_ID=<firebase_project_id>
+FCM_SERVICE_ACCOUNT_FILE=/path/to/firebase-service-account.json
+PUSH_REQUEST_TIMEOUT_SECONDS=3
+```
+
+Если эти переменные не настроены, backend продолжит сохранять `push_token` и работать с API, но внешняя отправка push в FCM будет пропущена.
+Сами запросы создания сообщений и банов из-за ошибки push-доставки не падают.
+
 ## Быстрый сценарий для frontend
 
 Минимальный порядок работы для приложения Сотрудника:
 
-1. При первом запуске вызвать `POST /api/v1/devices/register` с `X-Client-App: employee`.
+1. При первом запуске вызвать `POST /api/v1/devices/register` с `X-Client-App: employee`; если используется FCM, передать `push_token`.
 2. Сохранить `device_id` и `access_token`.
 3. Для защищенных запросов отправлять `Authorization: Bearer <access_token>`.
 4. Чтобы узнать свою роль, вызвать `GET /api/v1/employee/me`.
@@ -1627,7 +1691,7 @@ curl -X PATCH https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41d
 
 Минимальный порядок работы для приложения Очевидца:
 
-1. При первом запуске вызвать `POST /api/v1/devices/register` с `X-Client-App: eyewitness`.
+1. При первом запуске вызвать `POST /api/v1/devices/register` с `X-Client-App: eyewitness`; если используется FCM, передать `push_token`.
 2. Сохранить `device_id` и `access_token`.
 3. Чтобы отправить текстовое сообщение, вызвать `POST /api/v1/messages`.
 4. Чтобы отправить точку, вызвать `POST /api/v1/messages/static-location`.
@@ -1643,7 +1707,6 @@ curl -X PATCH https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41d
 Эти части есть в общей схеме системы, но в текущем backend-срезе еще не сделаны:
 
 ```text
-push-уведомления
 WebSocket / real-time события
 ```
 

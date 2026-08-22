@@ -17,8 +17,9 @@
 - live-геолокация на 15 минут
 - загрузка и скачивание медиа-файлов с TTL 7 дней
 - блокировка Очевидца: 1 сутки, 30 дней, постоянный бан
+- push-уведомления через `devices.push_token` и Firebase Cloud Messaging
 
-Не добавлены: WebSocket, push, Excel, Docker.
+Не добавлены: WebSocket, Excel, Docker.
 
 ## Требования
 
@@ -35,6 +36,16 @@ cp .env.example .env
 ```
 
 Заполнить `.env` под свою отдельную PostgreSQL DB.
+
+Для реальной доставки push-уведомлений через Firebase также заполнить:
+
+```bash
+FCM_PROJECT_ID=<firebase_project_id>
+FCM_SERVICE_ACCOUNT_FILE=/path/to/firebase-service-account.json
+PUSH_REQUEST_TIMEOUT_SECONDS=3
+```
+
+Если эти переменные пустые, API работает, `push_token` сохраняется, но внешняя доставка push пропускается.
 
 Создать таблицы:
 
@@ -128,7 +139,7 @@ pytest
 
 `devices.current_role`: текущая роль employee-устройства. Нужна для UI сотрудника и проверки прав.
 
-`devices.push_token`: будущий адрес push-доставки. Сейчас сохраняется, но push не реализован.
+`devices.push_token`: адрес push-доставки. Android передает FCM token при регистрации устройства. Backend сохраняет токен, обновляет его при повторной регистрации и использует для уведомлений о новых сообщениях и банах.
 
 `devices.last_activity_at`: время последней активности устройства.
 

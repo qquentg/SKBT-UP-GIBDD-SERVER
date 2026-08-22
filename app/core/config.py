@@ -23,6 +23,15 @@ class Settings(BaseSettings):
         default="storage/media",
         validation_alias="MEDIA_STORAGE_DIR",
     )
+    fcm_project_id: str | None = Field(default=None, validation_alias="FCM_PROJECT_ID")
+    fcm_service_account_file: str | None = Field(
+        default=None,
+        validation_alias="FCM_SERVICE_ACCOUNT_FILE",
+    )
+    push_request_timeout_seconds: float = Field(
+        default=3.0,
+        validation_alias="PUSH_REQUEST_TIMEOUT_SECONDS",
+    )
 
 
 @lru_cache

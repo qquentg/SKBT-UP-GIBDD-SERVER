@@ -1,0 +1,230 @@
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from threading import Thread
+from uuid import UUID
+
+import httpx
+
+from app.core.config import get_settings
+from app.models.ban import Ban
+from app.models.device import Device
+from app.models.message import Message
+from app.schemas.device import DeviceRole
+from app.schemas.messages import MessageType
+
+logger = logging.getLogger(__name__)
+
+FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
+EMPLOYEE_PUSH_ROLES = {
+    DeviceRole.INSPECTOR.value,
+    DeviceRole.ADMIN.value,
+    DeviceRole.CHIEF.value,
+}
+
+
+@dataclass(frozen=True)
+class PushNotification:
+    device_id: str
+    push_token: str
+    title: str
+    body: str
+    data: dict[str, str]
+
+
+def notify_message_created(message: Message) -> None:
+    notifications = _message_notifications(message)
+    send_push_notifications(notifications)
+
+
+def notify_observer_banned(ban: Ban, *, actor_device_id: UUID) -> None:
+    notifications: list[PushNotification] = []
+    observer = Device.get_or_none(Device.id == ban.observer_device_id)
+    if observer is not None:
+        notifications.extend(
+            _notifications_for_devices(
+                devices=[observer],
+                title="Access blocked",
+                body="Your chat is temporarily blocked",
+                data={
+                    "event": "observer_banned",
+                    "ban_id": str(ban.id),
+                    "observer_device_id": str(ban.observer_device_id),
+                    "issued_by_device_id": str(ban.issued_by_device_id),
+                },
+            )
+        )
+
+    chief_devices = _devices_with_push_token(
+        Device.select().where(
+            (Device.current_role == DeviceRole.CHIEF.value)
+            & (Device.id != actor_device_id)
+        )
+    )
+    notifications.extend(
+        _notifications_for_devices(
+            devices=chief_devices,
+            title="Observer blocked",
+            body="An observer chat was blocked",
+            data={
+                "event": "observer_banned",
+                "ban_id": str(ban.id),
+                "observer_device_id": str(ban.observer_device_id),
+                "issued_by_device_id": str(ban.issued_by_device_id),
+            },
+        )
+    )
+    send_push_notifications(notifications)
+
+
+def send_push_notifications(notifications: list[PushNotification]) -> None:
+    if not notifications:
+        return
+
+    settings = get_settings()
+    if not settings.fcm_project_id or not settings.fcm_service_account_file:
+        logger.info(
+            "Push notifications skipped: FCM settings are not configured",
+            extra={"push_count": len(notifications)},
+        )
+        return
+
+    Thread(
+        target=_deliver_push_notifications,
+        args=(
+            notifications,
+            settings.fcm_project_id,
+            settings.fcm_service_account_file,
+            settings.push_request_timeout_seconds,
+        ),
+        daemon=True,
+    ).start()
+
+
+def _deliver_push_notifications(
+    notifications: list[PushNotification],
+    fcm_project_id: str,
+    fcm_service_account_file: str,
+    timeout_seconds: float,
+) -> None:
+    try:
+        access_token = _get_fcm_access_token(fcm_service_account_file)
+    except Exception:
+        logger.exception("Push notifications skipped: cannot get FCM access token")
+        return
+
+    url = (
+        "https://fcm.googleapis.com/v1/projects/"
+        f"{fcm_project_id}/messages:send"
+    )
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    with httpx.Client(timeout=timeout_seconds) as client:
+        for notification in notifications:
+            try:
+                response = client.post(
+                    url,
+                    headers=headers,
+                    json={
+                        "message": {
+                            "token": notification.push_token,
+                            "notification": {
+                                "title": notification.title,
+                                "body": notification.body,
+                            },
+                            "data": notification.data,
+                        }
+                    },
+                )
+                response.raise_for_status()
+            except httpx.HTTPError:
+                logger.exception(
+                    "Push notification delivery failed",
+                    extra={"device_id": notification.device_id},
+                )
+
+
+def _message_notifications(message: Message) -> list[PushNotification]:
+    common_data = {
+        "event": "message_created",
+        "message_id": str(message.id),
+        "observer_device_id": str(message.observer_device_id),
+        "sender_device_id": str(message.sender_device_id),
+        "message_type": message.message_type,
+    }
+
+    if str(message.sender_device_id) == str(message.observer_device_id):
+        recipients = _devices_with_push_token(
+            Device.select().where(Device.current_role.in_(EMPLOYEE_PUSH_ROLES))
+        )
+        return _notifications_for_devices(
+            devices=recipients,
+            title="New eyewitness message",
+            body=_message_body(message),
+            data=common_data,
+        )
+
+    observer = Device.get_or_none(Device.id == message.observer_device_id)
+    if observer is None:
+        return []
+    return _notifications_for_devices(
+        devices=[observer],
+        title="New employee message",
+        body=_message_body(message),
+        data=common_data,
+    )
+
+
+def _message_body(message: Message) -> str:
+    if message.message_type == MessageType.TEXT.value:
+        text = (message.text or "").strip()
+        if text:
+            return text[:120]
+        return "Text message"
+    if message.message_type == MessageType.MEDIA.value:
+        return "Media message"
+    if message.message_type == MessageType.STATIC_LOCATION.value:
+        return "Static location"
+    if message.message_type == MessageType.LIVE_LOCATION.value:
+        return "Live location started"
+    return "New message"
+
+
+def _notifications_for_devices(
+    *,
+    devices,
+    title: str,
+    body: str,
+    data: dict[str, str],
+) -> list[PushNotification]:
+    return [
+        PushNotification(
+            device_id=str(device.id),
+            push_token=device.push_token,
+            title=title,
+            body=body,
+            data=data,
+        )
+        for device in _devices_with_push_token(devices)
+    ]
+
+
+def _devices_with_push_token(devices) -> list[Device]:
+    return [
+        device
+        for device in devices
+        if device.push_token is not None and device.push_token.strip()
+    ]
+
+
+def _get_fcm_access_token(service_account_file: str) -> str:
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+
+    credentials_path = Path(service_account_file)
+    credentials = service_account.Credentials.from_service_account_file(
+        credentials_path,
+        scopes=[FCM_SCOPE],
+    )
+    credentials.refresh(Request())
+    return credentials.token

@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from app.db.database import database_proxy
 from app.models.ban import Ban
 from app.models.device import Device, utc_now
+from app.services.push import notify_observer_banned
 
 BAN_ISSUER_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
 FIRST_BAN_DURATION = timedelta(days=1)
@@ -44,6 +45,7 @@ def create_observer_ban(*, actor: Device, observer_device_id: UUID) -> Ban:
         )
         Device.update(last_activity_at=started_at).where(Device.id == actor.id).execute()
 
+    notify_observer_banned(ban, actor_device_id=actor.id)
     return ban
 
 

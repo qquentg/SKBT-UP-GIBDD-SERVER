@@ -16,6 +16,7 @@ from app.models.static_location import StaticLocation
 from app.schemas.device import ClientApp, DeviceRole
 from app.schemas.messages import MessageType
 from app.services.bans import get_active_ban
+from app.services.push import notify_message_created
 
 EMPLOYEE_CHAT_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
 LIVE_LOCATION_DURATION = timedelta(minutes=15)
@@ -65,6 +66,7 @@ def create_text_message(
         )
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
+    notify_message_created(message)
     return message
 
 
@@ -95,6 +97,7 @@ def create_static_location_message(
         )
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
+    notify_message_created(message)
     return message
 
 
@@ -137,6 +140,7 @@ def create_media_message(
         )
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
+    notify_message_created(message)
     return message
 
 
@@ -208,6 +212,7 @@ def create_live_location_message(
         )
         Device.update(last_activity_at=now).where(Device.id == sender.id).execute()
 
+    notify_message_created(message)
     return message
 
 
