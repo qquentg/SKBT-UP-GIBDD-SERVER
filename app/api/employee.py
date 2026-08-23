@@ -9,10 +9,18 @@ from app.schemas.bans import ActiveBanResponse, BanResponse, BansResponse
 from app.schemas.employee import (
     AssignRoleRequest,
     DeviceProfileResponse,
+    EmployeeDeviceResponse,
+    EmployeeDevicesResponse,
     RoleChangeResponse,
     RoleEventResponse,
 )
-from app.services.roles import assign_role, get_device_or_404, remove_role, require_role_manager
+from app.services.roles import (
+    assign_role,
+    get_device_or_404,
+    list_employee_devices,
+    remove_role,
+    require_role_manager,
+)
 from app.services.bans import (
     ban_number,
     create_observer_ban,
@@ -33,6 +41,23 @@ def get_me(
     actor: Device = Depends(get_authorized_device),
 ) -> DeviceProfileResponse:
     return DeviceProfileResponse(device_id=actor.id, role=actor.current_role)
+
+
+@router.get("/devices", response_model=EmployeeDevicesResponse)
+def get_employee_devices(
+    actor: Device = Depends(get_authorized_device),
+) -> EmployeeDevicesResponse:
+    devices = list_employee_devices(actor)
+    return EmployeeDevicesResponse(
+        devices=[
+            EmployeeDeviceResponse(
+                device_id=device.id,
+                role=device.current_role,
+                last_activity_at=device.last_activity_at,
+            )
+            for device in devices
+        ]
+    )
 
 
 @router.get("/devices/{device_id}", response_model=DeviceProfileResponse)

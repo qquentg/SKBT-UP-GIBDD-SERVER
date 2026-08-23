@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from app.models.ban import Ban
+from app.models.message import Message
 from app.models.device import utc_now
 
 
@@ -31,7 +32,7 @@ def assign_role(client, actor: dict, target: dict, role: str) -> dict:
     return response.json()
 
 
-def test_inspector_can_ban_observer_and_block_messages(client):
+def test_inspector_can_ban_observer_and_chief_receives_banned_messages(client):
     observer = register(client, "eyewitness", "A")
     chief = register(client, "employee", "B")
     inspector = register(client, "employee", "C")
@@ -45,6 +46,14 @@ def test_inspector_can_ban_observer_and_block_messages(client):
         "/api/v1/messages",
         headers=auth_headers(observer["access_token"], "eyewitness"),
         json={"message_type": "TEXT", "text": "blocked"},
+    )
+    chief_messages = client.get(
+        f"/api/v1/chats/{observer['device_id']}/messages",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    inspector_messages = client.get(
+        f"/api/v1/chats/{observer['device_id']}/messages",
+        headers=auth_headers(inspector["access_token"], "employee"),
     )
     employee_answer = client.post(
         "/api/v1/messages",
@@ -72,8 +81,16 @@ def test_inspector_can_ban_observer_and_block_messages(client):
         days=1, minutes=1
     )
 
-    assert blocked_message.status_code == 403
-    assert blocked_message.json()["detail"] == "Observer device is banned"
+    assert blocked_message.status_code == 200
+    assert blocked_message.json()["text"] == "blocked"
+
+    assert chief_messages.status_code == 200
+    assert [message["text"] for message in chief_messages.json()["messages"]] == [
+        "blocked"
+    ]
+
+    assert inspector_messages.status_code == 403
+    assert inspector_messages.json()["detail"] == "Banned chat is visible only to CHIEF"
 
     assert employee_answer.status_code == 200
     assert employee_answer.json()["observer_device_id"] == observer["device_id"]
@@ -103,7 +120,9 @@ def test_chief_sees_banned_chat_and_inspector_does_not(client):
     observer = register(client, "eyewitness", "M")
     chief = register(client, "employee", "N")
     inspector = register(client, "employee", "O")
+    admin = register(client, "employee", "P")
     assign_role(client, chief, inspector, "INSPECTOR")
+    assign_role(client, chief, admin, "ADMIN")
 
     message = client.post(
         "/api/v1/messages",
@@ -123,6 +142,10 @@ def test_chief_sees_banned_chat_and_inspector_does_not(client):
         "/api/v1/chats",
         headers=auth_headers(inspector["access_token"], "employee"),
     )
+    admin_chats = client.get(
+        "/api/v1/chats",
+        headers=auth_headers(admin["access_token"], "employee"),
+    )
 
     assert message.status_code == 200
     assert ban.status_code == 200
@@ -134,6 +157,80 @@ def test_chief_sees_banned_chat_and_inspector_does_not(client):
 
     assert inspector_chats.status_code == 200
     assert inspector_chats.json() == {"chats": []}
+
+    assert admin_chats.status_code == 200
+    assert admin_chats.json() == {"chats": []}
+
+
+def test_messages_sent_during_ban_stay_hidden_after_ban_ends(client):
+    observer = register(client, "eyewitness", "Q")
+    chief = register(client, "employee", "R")
+    admin = register(client, "employee", "S")
+    assign_role(client, chief, admin, "ADMIN")
+
+    before_ban = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "TEXT", "text": "before ban"},
+    )
+    ban = client.post(
+        f"/api/v1/employee/devices/{observer['device_id']}/ban",
+        headers=auth_headers(chief["access_token"], "employee"),
+    ).json()
+    during_ban = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "TEXT", "text": "during ban"},
+    )
+    ban_started_at = utc_now() - timedelta(days=2)
+    ban_ends_at = ban_started_at + timedelta(days=1)
+    Message.update(created_at=ban_started_at - timedelta(minutes=1)).where(
+        Message.id == before_ban.json()["message_id"]
+    ).execute()
+    Ban.update(started_at=ban_started_at, ends_at=ban_ends_at).where(
+        Ban.id == ban["ban_id"]
+    ).execute()
+    Message.update(created_at=ban_started_at + timedelta(minutes=1)).where(
+        Message.id == during_ban.json()["message_id"]
+    ).execute()
+    after_ban = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "TEXT", "text": "after ban"},
+    )
+
+    chief_messages = client.get(
+        f"/api/v1/chats/{observer['device_id']}/messages",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    admin_messages = client.get(
+        f"/api/v1/chats/{observer['device_id']}/messages",
+        headers=auth_headers(admin["access_token"], "employee"),
+    )
+    admin_chats = client.get(
+        "/api/v1/chats",
+        headers=auth_headers(admin["access_token"], "employee"),
+    )
+
+    assert before_ban.status_code == 200
+    assert during_ban.status_code == 200
+    assert after_ban.status_code == 200
+
+    assert chief_messages.status_code == 200
+    assert [message["text"] for message in chief_messages.json()["messages"]] == [
+        "before ban",
+        "during ban",
+        "after ban",
+    ]
+
+    assert admin_messages.status_code == 200
+    assert [message["text"] for message in admin_messages.json()["messages"]] == [
+        "before ban",
+        "after ban",
+    ]
+
+    assert admin_chats.status_code == 200
+    assert admin_chats.json()["chats"][0]["last_text"] == "after ban"
 
 
 def test_ban_history_escalates_to_permanent(client):
@@ -185,6 +282,31 @@ def test_active_ban_endpoint_returns_null_when_no_active_ban(client):
 
     assert response.status_code == 200
     assert response.json() == {"ban": None}
+
+
+def test_eyewitness_can_get_own_active_ban(client):
+    observer = register(client, "eyewitness", "T")
+    chief = register(client, "employee", "U")
+
+    no_ban = client.get(
+        "/api/v1/devices/me/bans/active",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+    )
+    ban = client.post(
+        f"/api/v1/employee/devices/{observer['device_id']}/ban",
+        headers=auth_headers(chief["access_token"], "employee"),
+    ).json()
+    active_ban = client.get(
+        "/api/v1/devices/me/bans/active",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+    )
+
+    assert no_ban.status_code == 200
+    assert no_ban.json() == {"ban": None}
+
+    assert active_ban.status_code == 200
+    assert active_ban.json()["ban"]["ban_id"] == ban["ban_id"]
+    assert active_ban.json()["ban"]["ends_at"] == ban["ends_at"]
 
 
 def test_employee_without_role_cannot_ban(client):

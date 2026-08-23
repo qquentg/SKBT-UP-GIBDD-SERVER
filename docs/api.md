@@ -106,12 +106,14 @@ CHIEF     - Начальник
 
 ## Список эндпоинтов
 
-Сейчас реализовано 21 эндпоинт:
+Сейчас реализовано 23 эндпоинта:
 
 ```text
 GET    /health
 POST   /api/v1/devices/register
+GET    /api/v1/devices/me/bans/active
 GET    /api/v1/employee/me
+GET    /api/v1/employee/devices
 GET    /api/v1/employee/devices/{device_id}
 PUT    /api/v1/employee/devices/{device_id}/role
 DELETE /api/v1/employee/devices/{device_id}/role
@@ -131,6 +133,26 @@ GET    /api/v1/chats
 GET    /api/v1/chats/{observer_device_id}/messages
 PATCH  /api/v1/messages/{message_id}/delivered
 ```
+
+## Формат даты и времени
+
+Все поля времени приходят в ISO 8601.
+Backend хранит и отдает время в UTC.
+
+Примеры:
+
+```json
+{
+  "created_at": "2026-08-23T12:30:15.123456Z",
+  "last_created_at": "2026-08-23T12:30:15.123456Z",
+  "started_at": "2026-08-23T12:00:00Z",
+  "ends_at": "2026-08-24T12:00:00Z",
+  "delivered_at": null
+}
+```
+
+Для Android это можно парсить как `Instant`.
+Если поле равно `null`, значит времени еще нет или срок бессрочный, например `ends_at: null` у постоянного бана.
 
 ## GET /health
 
@@ -341,6 +363,59 @@ curl https://силенок.рф:4401/api/v1/employee/me \
   "role": null
 }
 ```
+
+## GET /api/v1/employee/devices
+
+Возвращает список устройств сотрудников для экрана "Сотрудники".
+
+Нужна авторизация сотрудника.
+
+Доступ разрешен только ролям:
+
+```text
+ADMIN
+CHIEF
+```
+
+Важно: в текущей ERD нет отдельного поля, по которому можно отличить employee-устройство без роли от устройства Очевидца.
+Поэтому endpoint возвращает устройства, у которых уже есть employee-роль: `INSPECTOR`, `ADMIN` или `CHIEF`.
+
+### Пример запроса
+
+```bash
+curl https://силенок.рф:4401/api/v1/employee/devices \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: employee"
+```
+
+### Ответ
+
+```json
+{
+  "devices": [
+    {
+      "device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
+      "role": "CHIEF",
+      "last_activity_at": "2026-08-23T12:30:15.123456Z"
+    },
+    {
+      "device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003",
+      "role": "INSPECTOR",
+      "last_activity_at": "2026-08-23T12:35:00Z"
+    }
+  ]
+}
+```
+
+Если текущий сотрудник не `ADMIN` и не `CHIEF`:
+
+```json
+{
+  "detail": "Role management is not allowed for this device"
+}
+```
+
+Статус: `403 Forbidden`.
 
 ## GET /api/v1/employee/devices/{device_id}
 
@@ -740,39 +815,75 @@ curl https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f
 }
 ```
 
-## Что меняется для забаненного Очевидца
+## GET /api/v1/devices/me/bans/active
 
-Если Очевидец забанен, он не может отправлять:
+Возвращает активный бан текущего Очевидца.
 
-```text
-POST /api/v1/messages
-POST /api/v1/messages/static-location
-POST /api/v1/messages/media/upload
-POST /api/v1/messages/live-location/start
-POST /api/v1/messages/{message_id}/live-location/points
+Этот endpoint нужен приложению Очевидца, чтобы показать срок блокировки на экране.
+
+Нужны заголовки:
+
+```http
+Authorization: Bearer <access_token>
+X-Client-App: eyewitness
 ```
 
-Ответ:
+Если активного бана нет:
 
 ```json
 {
-  "detail": "Observer device is banned"
+  "ban": null
+}
+```
+
+Если активный бан есть:
+
+```json
+{
+  "ban": {
+    "ban_id": "8fdc98ed-fb31-41a6-b77e-6e12c26ec9a1",
+    "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "issued_by_device_id": "0f41d9ac-528b-4911-8a4c-b3546d32308c",
+    "started_at": "2026-08-23T12:00:00Z",
+    "ends_at": "2026-08-24T12:00:00Z",
+    "ban_number": 1,
+    "is_active": true
+  }
+}
+```
+
+Если `ends_at` равен `null`, бан постоянный.
+
+## Что меняется для забаненного Очевидца
+
+Если Очевидец забанен, backend не удаляет его сообщения.
+Сообщения, отправленные во время активного бана, сохраняются в БД, но видны только `CHIEF`.
+
+Правило видимости заблокированных чатов:
+
+```text
+CHIEF             -> видит активный заблокированный чат и получает active_ban
+ADMIN / INSPECTOR -> не видят активный заблокированный чат в GET /api/v1/chats
+```
+
+Когда бан закончился, новые сообщения снова видны `INSPECTOR`, `ADMIN` и `CHIEF`.
+Сообщения, созданные во время периода бана, остаются скрытыми для `INSPECTOR` и `ADMIN`.
+
+Если `ADMIN` или `INSPECTOR` напрямую запрашивает сообщения активного заблокированного чата:
+
+```json
+{
+  "detail": "Banned chat is visible only to CHIEF"
 }
 ```
 
 Статус: `403 Forbidden`.
 
-Для списка чатов действует отдельное правило видимости:
-
-```text
-CHIEF / ADMIN -> видят заблокированные чаты и получают active_ban
-INSPECTOR     -> не видит заблокированные чаты в GET /api/v1/chats
-```
-
 Статус блокировки также можно проверить отдельным endpoint:
 
 ```text
 GET /api/v1/employee/devices/{observer_device_id}/bans/active
+GET /api/v1/devices/me/bans/active
 ```
 
 ## POST /api/v1/messages
@@ -1369,8 +1480,8 @@ limit максимум 300
 Правило видимости заблокированных чатов:
 
 ```text
-CHIEF / ADMIN -> видят заблокированные чаты
-INSPECTOR     -> не видит заблокированные чаты
+CHIEF             -> видит активные заблокированные чаты
+ADMIN / INSPECTOR -> не видят активные заблокированные чаты
 ```
 
 Нужна авторизация Сотрудника:
@@ -1417,7 +1528,7 @@ curl https://силенок.рф:4401/api/v1/chats \
 }
 ```
 
-Если чат заблокирован и список запрашивает `CHIEF` или `ADMIN`, поле `active_ban` будет заполнено:
+Если чат заблокирован и список запрашивает `CHIEF`, поле `active_ban` будет заполнено:
 
 ```json
 {
@@ -1443,6 +1554,68 @@ curl https://силенок.рф:4401/api/v1/chats \
       }
     }
   ]
+}
+```
+
+Если последнее сообщение не текстовое, поля `last_*` заполняются по типу сообщения.
+
+Пример для последнего фото:
+
+```json
+{
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0002",
+  "last_message_type": "MEDIA",
+  "last_text": null,
+  "last_static_location": null,
+  "last_media": {
+    "storage_key": "2026/08/9a2f8c2e4b0d4a4e98f3a2d71d6e1c11.jpg",
+    "mime_type": "image/jpeg",
+    "last_viewed_at": null
+  },
+  "last_live_location": null,
+  "last_created_at": "2026-08-23T12:31:00Z",
+  "last_delivered_at": null,
+  "active_ban": null
+}
+```
+
+Пример для последней статической геолокации:
+
+```json
+{
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0004",
+  "last_message_type": "STATIC_LOCATION",
+  "last_text": null,
+  "last_static_location": {
+    "latitude": 55.7558,
+    "longitude": 37.6173
+  },
+  "last_media": null,
+  "last_live_location": null,
+  "last_created_at": "2026-08-23T12:33:00Z",
+  "last_delivered_at": null,
+  "active_ban": null
+}
+```
+
+Пример для последней live-геолокации:
+
+```json
+{
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0005",
+  "last_message_type": "LIVE_LOCATION",
+  "last_text": null,
+  "last_static_location": null,
+  "last_media": null,
+  "last_live_location": {
+    "ends_at": "2026-08-23T12:48:00Z"
+  },
+  "last_created_at": "2026-08-23T12:33:00Z",
+  "last_delivered_at": null,
+  "active_ban": null
 }
 ```
 
@@ -1494,6 +1667,120 @@ curl https://силенок.рф:4401/api/v1/chats/2b2c9f3c-1c9a-4b1f-b2f0-531f2
     }
   ]
 }
+```
+
+### Примеры разных message_type
+
+`TEXT`:
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0001",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "TEXT",
+  "text": "Нужна помощь на дороге",
+  "static_location": null,
+  "media": null,
+  "live_location": null,
+  "created_at": "2026-08-23T12:30:15.123456Z",
+  "delivered_at": null
+}
+```
+
+`MEDIA`, фото:
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0002",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "MEDIA",
+  "text": null,
+  "static_location": null,
+  "media": {
+    "storage_key": "2026/08/9a2f8c2e4b0d4a4e98f3a2d71d6e1c11.jpg",
+    "mime_type": "image/jpeg",
+    "last_viewed_at": null
+  },
+  "live_location": null,
+  "created_at": "2026-08-23T12:31:00Z",
+  "delivered_at": null
+}
+```
+
+`MEDIA`, видео:
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0003",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "MEDIA",
+  "text": null,
+  "static_location": null,
+  "media": {
+    "storage_key": "2026/08/20fa7d47693b45d2b5a0d823cb863581.mp4",
+    "mime_type": "video/mp4",
+    "last_viewed_at": null
+  },
+  "live_location": null,
+  "created_at": "2026-08-23T12:32:00Z",
+  "delivered_at": null
+}
+```
+
+В ответе на сообщение с медиа нет прямого URL файла.
+Файл нужно скачивать отдельным запросом:
+
+```text
+GET /api/v1/messages/{message_id}/media
+```
+
+`STATIC_LOCATION`:
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0004",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "STATIC_LOCATION",
+  "text": null,
+  "static_location": {
+    "latitude": 55.7558,
+    "longitude": 37.6173
+  },
+  "media": null,
+  "live_location": null,
+  "created_at": "2026-08-23T12:33:00Z",
+  "delivered_at": null
+}
+```
+
+`LIVE_LOCATION`:
+
+```json
+{
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0005",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "message_type": "LIVE_LOCATION",
+  "text": null,
+  "static_location": null,
+  "media": null,
+  "live_location": {
+    "ends_at": "2026-08-23T12:48:00Z"
+  },
+  "created_at": "2026-08-23T12:33:00Z",
+  "delivered_at": null
+}
+```
+
+Координаты live-геолокации не лежат в самом сообщении.
+Их нужно получать отдельно:
+
+```text
+GET /api/v1/messages/{message_id}/live-location/points
 ```
 
 ### Догрузка новых сообщений
@@ -1626,6 +1913,7 @@ Frontend передает push-токен только в `POST /api/v1/devices/
 - сохраняет `push_token` в `devices.push_token`;
 - при повторной регистрации того же устройства обновляет `push_token`;
 - при новом сообщении от Очевидца отправляет push всем employee-устройствам с ролью `INSPECTOR`, `ADMIN` или `CHIEF`, если у них есть `push_token`;
+- при новом сообщении от забаненного Очевидца отправляет push только `CHIEF`;
 - при новом сообщении от Сотрудника отправляет push Очевидцу, если у него есть `push_token`;
 - при бане Очевидца отправляет push самому Очевидцу и другим `CHIEF`-устройствам;
 - при старте live-геолокации отправляет один push о новом сообщении типа `LIVE_LOCATION`;
@@ -1676,31 +1964,33 @@ PUSH_REQUEST_TIMEOUT_SECONDS=3
 2. Сохранить `device_id` и `access_token`.
 3. Для защищенных запросов отправлять `Authorization: Bearer <access_token>`.
 4. Чтобы узнать свою роль, вызвать `GET /api/v1/employee/me`.
-5. После сканирования QR другого устройства вызвать `GET /api/v1/employee/devices/{device_id}`.
-6. Чтобы назначить роль, вызвать `PUT /api/v1/employee/devices/{device_id}/role`.
-7. Чтобы удалить роль, вызвать `DELETE /api/v1/employee/devices/{device_id}/role`.
-8. Чтобы получить список чатов, вызвать `GET /api/v1/chats`.
-9. Чтобы открыть чат, вызвать `GET /api/v1/chats/{observer_device_id}/messages`.
-10. Чтобы отправить текст в чат Очевидца, вызвать `POST /api/v1/messages` с `observer_device_id`.
-11. Чтобы отправить точку в чат Очевидца, вызвать `POST /api/v1/messages/static-location` с `observer_device_id`.
-12. Чтобы отправить файл в чат Очевидца, вызвать `POST /api/v1/messages/media/upload` с `observer_device_id`.
-13. Чтобы заблокировать Очевидца, вызвать `POST /api/v1/employee/devices/{observer_device_id}/ban`.
-14. Чтобы проверить активный бан, вызвать `GET /api/v1/employee/devices/{observer_device_id}/bans/active`.
-15. Чтобы начать live-геолокацию в чате Очевидца, вызвать `POST /api/v1/messages/live-location/start` с `observer_device_id`.
-16. Чтобы получить точки live-геолокации, вызвать `GET /api/v1/messages/{message_id}/live-location/points`.
+5. Чтобы получить список сотрудников, вызвать `GET /api/v1/employee/devices`.
+6. После сканирования QR другого устройства вызвать `GET /api/v1/employee/devices/{device_id}`.
+7. Чтобы назначить роль, вызвать `PUT /api/v1/employee/devices/{device_id}/role`.
+8. Чтобы удалить роль, вызвать `DELETE /api/v1/employee/devices/{device_id}/role`.
+9. Чтобы получить список чатов, вызвать `GET /api/v1/chats`.
+10. Чтобы открыть чат, вызвать `GET /api/v1/chats/{observer_device_id}/messages`.
+11. Чтобы отправить текст в чат Очевидца, вызвать `POST /api/v1/messages` с `observer_device_id`.
+12. Чтобы отправить точку в чат Очевидца, вызвать `POST /api/v1/messages/static-location` с `observer_device_id`.
+13. Чтобы отправить файл в чат Очевидца, вызвать `POST /api/v1/messages/media/upload` с `observer_device_id`.
+14. Чтобы заблокировать Очевидца, вызвать `POST /api/v1/employee/devices/{observer_device_id}/ban`.
+15. Чтобы проверить активный бан, вызвать `GET /api/v1/employee/devices/{observer_device_id}/bans/active`.
+16. Чтобы начать live-геолокацию в чате Очевидца, вызвать `POST /api/v1/messages/live-location/start` с `observer_device_id`.
+17. Чтобы получить точки live-геолокации, вызвать `GET /api/v1/messages/{message_id}/live-location/points`.
 
 Минимальный порядок работы для приложения Очевидца:
 
 1. При первом запуске вызвать `POST /api/v1/devices/register` с `X-Client-App: eyewitness`; если используется FCM, передать `push_token`.
 2. Сохранить `device_id` и `access_token`.
-3. Чтобы отправить текстовое сообщение, вызвать `POST /api/v1/messages`.
-4. Чтобы отправить точку, вызвать `POST /api/v1/messages/static-location`.
-5. Чтобы отправить файл, вызвать `POST /api/v1/messages/media/upload`.
-6. Чтобы начать live-геолокацию, вызвать `POST /api/v1/messages/live-location/start`.
-7. Чтобы добавить точку live-геолокации, вызвать `POST /api/v1/messages/{message_id}/live-location/points`.
-8. Чтобы завершить live-геолокацию, вызвать `POST /api/v1/messages/{message_id}/live-location/stop`.
-9. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
-10. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
+3. Чтобы проверить активный бан и его `ends_at`, вызвать `GET /api/v1/devices/me/bans/active`.
+4. Чтобы отправить текстовое сообщение, вызвать `POST /api/v1/messages`.
+5. Чтобы отправить точку, вызвать `POST /api/v1/messages/static-location`.
+6. Чтобы отправить файл, вызвать `POST /api/v1/messages/media/upload`.
+7. Чтобы начать live-геолокацию, вызвать `POST /api/v1/messages/live-location/start`.
+8. Чтобы добавить точку live-геолокации, вызвать `POST /api/v1/messages/{message_id}/live-location/points`.
+9. Чтобы завершить live-геолокацию, вызвать `POST /api/v1/messages/{message_id}/live-location/stop`.
+10. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
+11. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
 
 ## Что еще не реализовано
 

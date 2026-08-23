@@ -71,6 +71,17 @@ def get_active_ban(observer_device_id: UUID) -> Ban | None:
     return None
 
 
+def get_ban_at(observer_device_id: UUID, moment: datetime) -> Ban | None:
+    for ban in (
+        Ban.select()
+        .where(Ban.observer_device == observer_device_id)
+        .order_by(Ban.started_at.desc(), Ban.id.desc())
+    ):
+        if _is_ban_active(ban=ban, now=_as_utc_aware(moment)):
+            return ban
+    return None
+
+
 def ban_number(ban: Ban) -> int:
     return (
         Ban.select()

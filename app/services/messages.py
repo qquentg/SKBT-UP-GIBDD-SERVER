@@ -15,7 +15,7 @@ from app.models.message import Message
 from app.models.static_location import StaticLocation
 from app.schemas.device import ClientApp, DeviceRole
 from app.schemas.messages import MessageType
-from app.services.bans import get_active_ban
+from app.services.bans import get_active_ban, get_ban_at
 from app.services.push import notify_message_created
 
 EMPLOYEE_CHAT_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
@@ -226,8 +226,6 @@ def add_live_location_point(
 ) -> LocationPoint:
     message = _get_live_location_message_or_404(message_id)
     _require_live_location_sender(actor=actor, message=message)
-    if client_app == ClientApp.EYEWITNESS:
-        _require_observer_not_banned(actor.id)
     _require_chat_participant(
         actor=actor,
         client_app=client_app,
@@ -304,6 +302,16 @@ def list_live_location_points(
         client_app=client_app,
         observer_device_id=message.observer_device_id,
     )
+    _require_chat_visible_to_actor(
+        actor=actor,
+        client_app=client_app,
+        observer_device_id=message.observer_device_id,
+    )
+    _require_message_visible_to_actor(
+        actor=actor,
+        client_app=client_app,
+        message=message,
+    )
 
     query = LocationPoint.select().where(LocationPoint.message == message.id)
     if after_recorded_at is not None:
@@ -320,9 +328,11 @@ def list_chats(actor: Device) -> list[Message]:
         observer_id = str(message.observer_device_id)
         if observer_id not in latest_by_observer:
             if (
-                actor.current_role == DeviceRole.INSPECTOR.value
+                actor.current_role != DeviceRole.CHIEF.value
                 and get_active_ban(message.observer_device_id) is not None
             ):
+                continue
+            if not _message_visible_to_employee(actor=actor, message=message):
                 continue
             latest_by_observer[observer_id] = message
 
@@ -342,6 +352,11 @@ def list_chat_messages(
         client_app=client_app,
         observer_device_id=observer_device_id,
     )
+    _require_chat_visible_to_actor(
+        actor=actor,
+        client_app=client_app,
+        observer_device_id=observer_device_id,
+    )
 
     query = Message.select().where(Message.observer_device == observer_device_id)
     if after_message_id is not None:
@@ -353,7 +368,14 @@ def list_chat_messages(
             )
         query = query.where(Message.created_at > after_message.created_at)
 
-    return list(query.order_by(Message.created_at.asc(), Message.id.asc()).limit(limit))
+    messages = []
+    for message in query.order_by(Message.created_at.asc(), Message.id.asc()):
+        if _message_visible_to_actor(actor=actor, client_app=client_app, message=message):
+            messages.append(message)
+        if len(messages) >= limit:
+            break
+
+    return messages
 
 
 def mark_message_delivered(
@@ -367,6 +389,16 @@ def mark_message_delivered(
         actor=actor,
         client_app=client_app,
         observer_device_id=message.observer_device_id,
+    )
+    _require_chat_visible_to_actor(
+        actor=actor,
+        client_app=client_app,
+        observer_device_id=message.observer_device_id,
+    )
+    _require_message_visible_to_actor(
+        actor=actor,
+        client_app=client_app,
+        message=message,
     )
 
     if message.delivered_at is None:
@@ -417,6 +449,16 @@ def get_media_file_for_message(
         actor=actor,
         client_app=client_app,
         observer_device_id=message.observer_device_id,
+    )
+    _require_chat_visible_to_actor(
+        actor=actor,
+        client_app=client_app,
+        observer_device_id=message.observer_device_id,
+    )
+    _require_message_visible_to_actor(
+        actor=actor,
+        client_app=client_app,
+        message=message,
     )
 
     media = get_media_for_message(message)
@@ -477,7 +519,6 @@ def _resolve_observer_device(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Eyewitness can only write to own chat",
             )
-        _require_observer_not_banned(sender.id)
         return sender
 
     require_employee_chat_access(sender)
@@ -520,12 +561,51 @@ def _require_chat_participant(
     require_employee_chat_access(actor)
 
 
-def _require_observer_not_banned(observer_device_id: UUID) -> None:
-    if get_active_ban(observer_device_id) is not None:
+def _require_chat_visible_to_actor(
+    *,
+    actor: Device,
+    client_app: ClientApp,
+    observer_device_id: UUID,
+) -> None:
+    if (
+        client_app == ClientApp.EMPLOYEE
+        and actor.current_role != DeviceRole.CHIEF.value
+        and get_active_ban(observer_device_id) is not None
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Observer device is banned",
+            detail="Banned chat is visible only to CHIEF",
         )
+
+
+def _require_message_visible_to_actor(
+    *,
+    actor: Device,
+    client_app: ClientApp,
+    message: Message,
+) -> None:
+    if not _message_visible_to_actor(actor=actor, client_app=client_app, message=message):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Message is visible only to CHIEF",
+        )
+
+
+def _message_visible_to_actor(
+    *,
+    actor: Device,
+    client_app: ClientApp,
+    message: Message,
+) -> bool:
+    if client_app != ClientApp.EMPLOYEE:
+        return True
+    return _message_visible_to_employee(actor=actor, message=message)
+
+
+def _message_visible_to_employee(*, actor: Device, message: Message) -> bool:
+    if actor.current_role == DeviceRole.CHIEF.value:
+        return True
+    return get_ban_at(message.observer_device_id, message.created_at) is None
 
 
 def _get_live_location_message_or_404(message_id: UUID) -> Message:

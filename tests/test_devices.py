@@ -210,6 +210,72 @@ def test_chief_can_assign_replace_and_remove_roles(client):
     assert events[-1].role == "INSPECTOR"
 
 
+def test_chief_and_admin_can_list_employee_devices(client):
+    chief = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "o" * 64},
+    ).json()
+    admin = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "p" * 64},
+    ).json()
+    inspector = client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "employee"},
+        json={"fingerprint_hash": "q" * 64},
+    ).json()
+    client.post(
+        "/api/v1/devices/register",
+        headers={"X-Client-App": "eyewitness"},
+        json={"fingerprint_hash": "r" * 64},
+    )
+
+    client.put(
+        f"/api/v1/employee/devices/{admin['device_id']}/role",
+        headers=auth_headers(chief["access_token"]),
+        json={"role": "ADMIN"},
+    )
+    client.put(
+        f"/api/v1/employee/devices/{inspector['device_id']}/role",
+        headers=auth_headers(chief["access_token"]),
+        json={"role": "INSPECTOR"},
+    )
+
+    chief_response = client.get(
+        "/api/v1/employee/devices",
+        headers=auth_headers(chief["access_token"]),
+    )
+    admin_response = client.get(
+        "/api/v1/employee/devices",
+        headers=auth_headers(admin["access_token"]),
+    )
+    inspector_response = client.get(
+        "/api/v1/employee/devices",
+        headers=auth_headers(inspector["access_token"]),
+    )
+
+    assert chief_response.status_code == 200
+    assert admin_response.status_code == 200
+    assert inspector_response.status_code == 403
+
+    assert {device["device_id"] for device in chief_response.json()["devices"]} == {
+        chief["device_id"],
+        admin["device_id"],
+        inspector["device_id"],
+    }
+    assert {device["role"] for device in admin_response.json()["devices"]} == {
+        "CHIEF",
+        "ADMIN",
+        "INSPECTOR",
+    }
+    assert all(
+        device["last_activity_at"] is not None
+        for device in chief_response.json()["devices"]
+    )
+
+
 def test_admin_cannot_assign_chief(client):
     chief = client.post(
         "/api/v1/devices/register",

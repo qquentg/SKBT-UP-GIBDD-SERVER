@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Thread
 from uuid import UUID
@@ -154,8 +155,13 @@ def _message_notifications(message: Message) -> list[PushNotification]:
     }
 
     if str(message.sender_device_id) == str(message.observer_device_id):
+        recipient_roles = (
+            {DeviceRole.CHIEF.value}
+            if _get_active_ban(message.observer_device_id) is not None
+            else EMPLOYEE_PUSH_ROLES
+        )
         recipients = _devices_with_push_token(
-            Device.select().where(Device.current_role.in_(EMPLOYEE_PUSH_ROLES))
+            Device.select().where(Device.current_role.in_(recipient_roles))
         )
         return _notifications_for_devices(
             devices=recipients,
@@ -215,6 +221,32 @@ def _devices_with_push_token(devices) -> list[Device]:
         for device in devices
         if device.push_token is not None and device.push_token.strip()
     ]
+
+
+def _get_active_ban(observer_device_id: UUID) -> Ban | None:
+    from app.models.device import utc_now
+
+    now = utc_now()
+    for ban in (
+        Ban.select()
+        .where(Ban.observer_device == observer_device_id)
+        .order_by(Ban.started_at.desc(), Ban.id.desc())
+    ):
+        if _as_utc_aware(ban.started_at) <= now and (
+            ban.ends_at is None or _as_utc_aware(ban.ends_at) > now
+        ):
+            return ban
+    return None
+
+
+def _as_utc_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=_local_timezone()).astimezone(UTC)
+    return value.astimezone(UTC)
+
+
+def _local_timezone():
+    return datetime.now().astimezone().tzinfo
 
 
 def _get_fcm_access_token(service_account_file: str) -> str:

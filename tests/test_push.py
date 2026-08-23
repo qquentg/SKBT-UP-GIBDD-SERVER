@@ -117,6 +117,32 @@ def test_ban_pushes_to_observer_and_other_chief_devices(client, monkeypatch):
     )
 
 
+def test_banned_observer_message_pushes_only_to_chief_devices(client, monkeypatch):
+    sent = capture_push(monkeypatch)
+    observer = register(client, "eyewitness", "m")
+    chief = register(client, "employee", "n", "chief-token")
+    admin = register(client, "employee", "o", "admin-token")
+    inspector = register(client, "employee", "p", "inspector-token")
+    assign_role(client, chief, admin, "ADMIN")
+    assign_role(client, chief, inspector, "INSPECTOR")
+
+    ban = client.post(
+        f"/api/v1/employee/devices/{observer['device_id']}/ban",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    sent.clear()
+    message = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "TEXT", "text": "message during ban"},
+    )
+
+    assert ban.status_code == 200
+    assert message.status_code == 200
+    assert [notification.push_token for notification in sent] == ["chief-token"]
+    assert sent[0].data["message_type"] == "TEXT"
+
+
 def test_live_location_points_do_not_create_extra_pushes(client, monkeypatch):
     sent = capture_push(monkeypatch)
     observer = register(client, "eyewitness", "k")

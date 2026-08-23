@@ -40,6 +40,15 @@ def get_device_or_404(device_id: str) -> Device:
     return device
 
 
+def list_employee_devices(actor: Device) -> list[Device]:
+    require_role_manager(actor)
+    return list(
+        Device.select()
+        .where(Device.current_role.is_null(False))
+        .order_by(Device.current_role.asc(), Device.last_activity_at.desc())
+    )
+
+
 def assign_role(
     *,
     actor: Device,
