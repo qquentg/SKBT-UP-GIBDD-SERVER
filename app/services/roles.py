@@ -4,6 +4,7 @@ from app.db.database import database_proxy
 from app.models.device import Device, utc_now
 from app.models.role_event import RoleEvent
 from app.schemas.device import DeviceRole, RoleAction
+from app.services.realtime import publish_role_changed
 
 ROLE_ASSIGNMENT_RIGHTS = {
     DeviceRole.ADMIN.value: {DeviceRole.INSPECTOR.value, DeviceRole.ADMIN.value},
@@ -72,7 +73,14 @@ def assign_role(
             role=role.value,
         )
 
-    return Device.get_by_id(target.id), action
+    updated = Device.get_by_id(target.id)
+    publish_role_changed(
+        actor_device_id=actor.id,
+        target_device_id=target.id,
+        action=action.value,
+        role=role.value,
+    )
+    return updated, action
 
 
 def remove_role(*, actor: Device, target: Device) -> tuple[Device, RoleAction | None]:
@@ -92,4 +100,11 @@ def remove_role(*, actor: Device, target: Device) -> tuple[Device, RoleAction | 
             role=removed_role,
         )
 
-    return Device.get_by_id(target.id), RoleAction.REMOVED
+    updated = Device.get_by_id(target.id)
+    publish_role_changed(
+        actor_device_id=actor.id,
+        target_device_id=target.id,
+        action=RoleAction.REMOVED.value,
+        role=removed_role,
+    )
+    return updated, RoleAction.REMOVED

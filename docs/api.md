@@ -106,7 +106,7 @@ CHIEF     - Начальник
 
 ## Список эндпоинтов
 
-Сейчас реализовано 23 эндпоинта:
+Сейчас реализовано 24 REST-эндпоинта и 1 WebSocket-эндпоинт:
 
 ```text
 GET    /health
@@ -120,6 +120,7 @@ DELETE /api/v1/employee/devices/{device_id}/role
 POST   /api/v1/employee/devices/{device_id}/ban
 GET    /api/v1/employee/devices/{device_id}/bans
 GET    /api/v1/employee/devices/{device_id}/bans/active
+GET    /api/v1/employee/reports/excel
 POST   /api/v1/messages
 POST   /api/v1/messages/static-location
 POST   /api/v1/messages/media
@@ -132,6 +133,7 @@ GET    /api/v1/messages/{message_id}/live-location/points
 GET    /api/v1/chats
 GET    /api/v1/chats/{observer_device_id}/messages
 PATCH  /api/v1/messages/{message_id}/delivered
+WS     /api/v1/realtime
 ```
 
 ## Формат даты и времени
@@ -1895,6 +1897,271 @@ curl -X PATCH https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41d
 
 Статус: `404 Not Found`.
 
+## WebSocket / real-time
+
+WebSocket нужен для быстрых событий: новое сообщение, новая точка live-геолокации, остановка live-геолокации, бан, изменение роли.
+
+Адрес:
+
+```text
+wss://силенок.рф:4401/api/v1/realtime
+```
+
+Punycode-вариант:
+
+```text
+wss://xn--e1afhclgq.xn--p1ai:4401/api/v1/realtime
+```
+
+### Заголовки
+
+```http
+Authorization: Bearer <access_token>
+X-Client-App: employee
+```
+
+или:
+
+```http
+Authorization: Bearer <access_token>
+X-Client-App: eyewitness
+```
+
+Без токена или с неверным токеном соединение закрывается.
+
+WebSocket не заменяет REST. При первом открытии экрана и после переподключения frontend должен заново получить актуальное состояние обычными REST-запросами: `GET /api/v1/chats`, `GET /api/v1/chats/{observer_device_id}/messages`, `GET /api/v1/messages/{message_id}/live-location/points`.
+
+После успешного подключения первым приходит событие:
+
+```json
+{
+  "event": "connected",
+  "device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
+  "client_app": "employee",
+  "role": "CHIEF"
+}
+```
+
+### message_created
+
+Приходит при создании нового сообщения.
+
+```json
+{
+  "event": "message_created",
+  "message": {
+    "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0001",
+    "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "message_type": "TEXT",
+    "text": "Нужна помощь",
+    "static_location": null,
+    "media": null,
+    "live_location": null,
+    "created_at": "2026-08-23T12:30:15.123456Z",
+    "delivered_at": null
+  }
+}
+```
+
+Для `MEDIA`, `STATIC_LOCATION` и `LIVE_LOCATION` объект `message` имеет такую же структуру, как в `GET /api/v1/chats/{observer_device_id}/messages`.
+
+Если Очевидец заблокирован, его новые сообщения по realtime доставляются только устройствам с ролью `CHIEF`. Для `ADMIN` и `INSPECTOR` эти сообщения скрыты так же, как в REST.
+
+### live_location_point
+
+Приходит при добавлении новой точки live-геолокации.
+
+```json
+{
+  "event": "live_location_point",
+  "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0005",
+  "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+  "point": {
+    "recorded_at": "2026-08-23T12:31:00.123456Z",
+    "latitude": 55.7558,
+    "longitude": 37.6173
+  }
+}
+```
+
+Если приложение пропустило событие, точки можно догрузить через:
+
+```text
+GET /api/v1/messages/{message_id}/live-location/points?after_recorded_at=<datetime>
+```
+
+### live_location_stopped
+
+Приходит, когда отправитель завершил live-геолокацию.
+
+```json
+{
+  "event": "live_location_stopped",
+  "message": {
+    "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0005",
+    "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "message_type": "LIVE_LOCATION",
+    "text": null,
+    "static_location": null,
+    "media": null,
+    "live_location": {
+      "ends_at": "2026-08-23T12:35:00.123456Z"
+    },
+    "created_at": "2026-08-23T12:30:00.123456Z",
+    "delivered_at": null
+  }
+}
+```
+
+### observer_banned
+
+Приходит самому Очевидцу и устройствам с ролью `CHIEF`.
+
+```json
+{
+  "event": "observer_banned",
+  "ban": {
+    "ban_id": "9e32ef94-d6ef-41de-ae37-5fb5bb2b0001",
+    "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "issued_by_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
+    "started_at": "2026-08-23T12:30:15.123456Z",
+    "ends_at": "2026-08-24T12:30:15.123456Z"
+  }
+}
+```
+
+Если `ends_at` равен `null`, бан постоянный.
+
+### role_changed
+
+Приходит устройству, которому поменяли роль, и устройствам с ролью `CHIEF`.
+
+```json
+{
+  "event": "role_changed",
+  "actor_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
+  "target_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003",
+  "action": "ASSIGNED",
+  "role": "INSPECTOR"
+}
+```
+
+`action` может быть `ASSIGNED`, `REPLACED`, `REMOVED`.
+
+### message_delivered
+
+Приходит при отметке сообщения доставленным.
+
+```json
+{
+  "event": "message_delivered",
+  "message": {
+    "message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0001",
+    "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
+    "message_type": "TEXT",
+    "text": "Нужна помощь",
+    "static_location": null,
+    "media": null,
+    "live_location": null,
+    "created_at": "2026-08-23T12:30:15.123456Z",
+    "delivered_at": "2026-08-23T12:30:20.123456Z"
+  }
+}
+```
+
+## GET /api/v1/employee/reports/excel
+
+Скачивает Excel-отчёт. Доступен только устройствам с ролью `CHIEF`.
+
+### Заголовки
+
+```http
+Authorization: Bearer <access_token>
+X-Client-App: employee
+```
+
+### Пример запроса
+
+```bash
+curl https://силенок.рф:4401/api/v1/employee/reports/excel \
+  -H "Authorization: Bearer <access_token>" \
+  -H "X-Client-App: employee" \
+  -o gibdd-report.xlsx
+```
+
+### Ответ
+
+Файл `.xlsx`.
+
+```http
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+Content-Disposition: attachment; filename="gibdd-report.xlsx"
+```
+
+Файл генерируется на запрос и не хранится на сервере.
+
+Внутри три листа:
+
+```text
+Bans
+Roles
+Messages
+```
+
+Лист `Bans`:
+
+```text
+ban_id
+observer_device_id
+issued_by_device_id
+started_at
+ends_at
+ban_number
+is_active
+```
+
+Лист `Roles`:
+
+```text
+event_id
+actor_device_id
+target_device_id
+action
+role
+created_at
+```
+
+Лист `Messages`:
+
+```text
+message_id
+observer_device_id
+sender_device_id
+message_type
+text
+created_at
+delivered_at
+media_storage_key
+media_mime_type
+static_latitude
+static_longitude
+live_ends_at
+```
+
+Если отчёт запрашивает не `CHIEF`:
+
+```json
+{
+  "detail": "Reports are allowed only for CHIEF"
+}
+```
+
+Статус: `403 Forbidden`.
+
 ## Push-уведомления
 
 Отдельных endpoint'ов для push нет.
@@ -1977,6 +2244,8 @@ PUSH_REQUEST_TIMEOUT_SECONDS=3
 15. Чтобы проверить активный бан, вызвать `GET /api/v1/employee/devices/{observer_device_id}/bans/active`.
 16. Чтобы начать live-геолокацию в чате Очевидца, вызвать `POST /api/v1/messages/live-location/start` с `observer_device_id`.
 17. Чтобы получить точки live-геолокации, вызвать `GET /api/v1/messages/{message_id}/live-location/points`.
+18. Чтобы получать новые события без постоянного опроса REST, открыть `WS /api/v1/realtime`.
+19. Чтобы скачать Excel-отчёт, начальник вызывает `GET /api/v1/employee/reports/excel`.
 
 Минимальный порядок работы для приложения Очевидца:
 
@@ -1991,13 +2260,8 @@ PUSH_REQUEST_TIMEOUT_SECONDS=3
 9. Чтобы завершить live-геолокацию, вызвать `POST /api/v1/messages/{message_id}/live-location/stop`.
 10. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
 11. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
+12. Чтобы получать новые события без постоянного опроса REST, открыть `WS /api/v1/realtime`.
 
-## Что еще не реализовано
+## Что важно помнить
 
-Эти части есть в общей схеме системы, но в текущем backend-срезе еще не сделаны:
-
-```text
-WebSocket / real-time события
-```
-
-Их не нужно использовать на фронте, пока для них не появятся отдельные эндпоинты.
+PostgreSQL остаётся основным источником данных. WebSocket и push нужны только для быстрого уведомления клиента о событиях. Если приложение перезапустилось, потеряло соединение или пропустило событие, актуальное состояние нужно заново получить через REST.

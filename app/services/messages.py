@@ -17,6 +17,12 @@ from app.schemas.device import ClientApp, DeviceRole
 from app.schemas.messages import MessageType
 from app.services.bans import get_active_ban, get_ban_at
 from app.services.push import notify_message_created
+from app.services.realtime import (
+    publish_live_location_point,
+    publish_live_location_stopped,
+    publish_message_created,
+    publish_message_delivered,
+)
 
 EMPLOYEE_CHAT_ROLES = {"INSPECTOR", "ADMIN", "CHIEF"}
 LIVE_LOCATION_DURATION = timedelta(minutes=15)
@@ -67,6 +73,7 @@ def create_text_message(
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
     notify_message_created(message)
+    publish_message_created(message)
     return message
 
 
@@ -98,6 +105,7 @@ def create_static_location_message(
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
     notify_message_created(message)
+    publish_message_created(message)
     return message
 
 
@@ -141,6 +149,7 @@ def create_media_message(
         Device.update(last_activity_at=utc_now()).where(Device.id == sender.id).execute()
 
     notify_message_created(message)
+    publish_message_created(message)
     return message
 
 
@@ -213,6 +222,7 @@ def create_live_location_message(
         Device.update(last_activity_at=now).where(Device.id == sender.id).execute()
 
     notify_message_created(message)
+    publish_message_created(message)
     return message
 
 
@@ -255,6 +265,7 @@ def add_live_location_point(
         )
         Device.update(last_activity_at=now).where(Device.id == actor.id).execute()
 
+    publish_live_location_point(message, point)
     return point
 
 
@@ -285,7 +296,9 @@ def stop_live_location(
             LiveLocationSession.message == message.id
         ).execute()
 
-    return Message.get_by_id(message.id)
+    message = Message.get_by_id(message.id)
+    publish_live_location_stopped(message)
+    return message
 
 
 def list_live_location_points(
@@ -404,6 +417,7 @@ def mark_message_delivered(
     if message.delivered_at is None:
         Message.update(delivered_at=utc_now()).where(Message.id == message.id).execute()
         message = Message.get_by_id(message.id)
+        publish_message_delivered(message)
 
     return message
 

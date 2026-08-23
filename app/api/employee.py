@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 
 from app.api.dependencies import get_authorized_device, require_employee_client
 from app.models.device import Device
@@ -28,6 +29,7 @@ from app.services.bans import (
     is_ban_active,
     list_observer_bans,
 )
+from app.services.reports import generate_excel_report, require_report_access
 
 router = APIRouter(
     prefix="/api/v1/employee",
@@ -125,6 +127,20 @@ def get_employee_device_active_ban(
     list_observer_bans(actor=actor, observer_device_id=device_id)
     ban = get_active_ban(device_id)
     return ActiveBanResponse(ban=_ban_response(ban) if ban is not None else None)
+
+
+@router.get("/reports/excel")
+def get_employee_excel_report(
+    actor: Device = Depends(get_authorized_device),
+) -> Response:
+    require_report_access(actor)
+    return Response(
+        content=generate_excel_report(),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": 'attachment; filename="gibdd-report.xlsx"'},
+    )
 
 
 def _ban_response(ban: Ban) -> BanResponse:
