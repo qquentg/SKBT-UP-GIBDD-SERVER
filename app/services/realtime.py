@@ -78,12 +78,7 @@ def publish_message_created(message: Message) -> None:
         "message": message_payload(message),
     }
     if str(message.sender_device_id) == str(message.observer_device_id):
-        roles = (
-            {DeviceRole.CHIEF.value}
-            if _get_active_ban(message.observer_device_id) is not None
-            else EMPLOYEE_REALTIME_ROLES
-        )
-        manager.publish_to_employee_roles(roles, event)
+        manager.publish_to_employee_roles(_employee_roles_for_message(message), event)
         return
 
     manager.publish_to_devices({str(message.observer_device_id)}, event)
@@ -95,7 +90,7 @@ def publish_message_delivered(message: Message) -> None:
         "message": message_payload(message),
     }
     manager.publish_to_devices({str(message.observer_device_id)}, event)
-    manager.publish_to_employee_roles(EMPLOYEE_REALTIME_ROLES, event)
+    manager.publish_to_employee_roles(_employee_roles_for_message(message), event)
 
 
 def publish_live_location_point(message: Message, point: LocationPoint) -> None:
@@ -107,7 +102,7 @@ def publish_live_location_point(message: Message, point: LocationPoint) -> None:
         "point": location_point_payload(point),
     }
     manager.publish_to_devices({str(message.observer_device_id)}, event)
-    manager.publish_to_employee_roles(EMPLOYEE_REALTIME_ROLES, event)
+    manager.publish_to_employee_roles(_employee_roles_for_message(message), event)
 
 
 def publish_live_location_stopped(message: Message) -> None:
@@ -116,7 +111,7 @@ def publish_live_location_stopped(message: Message) -> None:
         "message": message_payload(message),
     }
     manager.publish_to_devices({str(message.observer_device_id)}, event)
-    manager.publish_to_employee_roles(EMPLOYEE_REALTIME_ROLES, event)
+    manager.publish_to_employee_roles(_employee_roles_for_message(message), event)
 
 
 def publish_observer_banned(ban: Ban, *, actor_device_id: UUID) -> None:
@@ -163,6 +158,28 @@ def _get_active_ban(observer_device_id: UUID) -> Ban | None:
     ):
         if _as_utc_aware(ban.started_at) <= now and (
             ban.ends_at is None or _as_utc_aware(ban.ends_at) > now
+        ):
+            return ban
+    return None
+
+
+def _employee_roles_for_message(message: Message) -> set[str]:
+    if _get_active_ban(message.observer_device_id) is not None:
+        return {DeviceRole.CHIEF.value}
+    if _get_ban_at(message.observer_device_id, message.created_at) is not None:
+        return {DeviceRole.CHIEF.value}
+    return EMPLOYEE_REALTIME_ROLES
+
+
+def _get_ban_at(observer_device_id: UUID, moment: datetime) -> Ban | None:
+    target = _as_utc_aware(moment)
+    for ban in (
+        Ban.select()
+        .where(Ban.observer_device == observer_device_id)
+        .order_by(Ban.started_at.desc(), Ban.id.desc())
+    ):
+        if _as_utc_aware(ban.started_at) <= target and (
+            ban.ends_at is None or _as_utc_aware(ban.ends_at) > target
         ):
             return ban
     return None

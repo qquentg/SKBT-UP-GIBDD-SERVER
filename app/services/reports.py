@@ -6,11 +6,8 @@ from openpyxl import Workbook
 
 from app.models.ban import Ban
 from app.models.device import Device
-from app.models.live_location_session import LiveLocationSession
-from app.models.media import Media
 from app.models.message import Message
 from app.models.role_event import RoleEvent
-from app.models.static_location import StaticLocation
 from app.schemas.device import DeviceRole
 from app.schemas.messages import MessageType
 from app.services.bans import ban_number, is_ban_active
@@ -92,42 +89,69 @@ def _fill_messages_sheet(sheet) -> None:
     _append_header(
         sheet,
         [
-            "message_id",
-            "observer_device_id",
             "sender_device_id",
-            "message_type",
-            "text",
-            "created_at",
-            "delivered_at",
-            "media_storage_key",
-            "media_mime_type",
-            "static_latitude",
-            "static_longitude",
-            "live_ends_at",
+            "message_count",
+            "text_count",
+            "media_count",
+            "static_location_count",
+            "live_location_count",
+            "delivered_count",
+            "first_created_at",
+            "last_created_at",
         ],
     )
-    for message in Message.select().order_by(Message.created_at.asc(), Message.id.asc()):
-        media = _media_for_message(message)
-        static_location = _static_location_for_message(message)
-        live_location = _live_location_for_message(message)
+    summaries = _message_summaries_by_sender()
+    for sender_device_id in sorted(summaries):
+        summary = summaries[sender_device_id]
         sheet.append(
             [
-                str(message.id),
-                str(message.observer_device_id),
-                str(message.sender_device_id),
-                message.message_type,
-                message.text,
-                _datetime_value(message.created_at),
-                _datetime_value(message.delivered_at),
-                media.storage_key if media is not None else None,
-                media.mime_type if media is not None else None,
-                static_location.latitude if static_location is not None else None,
-                static_location.longitude if static_location is not None else None,
-                _datetime_value(live_location.ends_at)
-                if live_location is not None
-                else None,
+                sender_device_id,
+                summary["message_count"],
+                summary["text_count"],
+                summary["media_count"],
+                summary["static_location_count"],
+                summary["live_location_count"],
+                summary["delivered_count"],
+                _datetime_value(summary["first_created_at"]),
+                _datetime_value(summary["last_created_at"]),
             ]
         )
+
+
+def _message_summaries_by_sender() -> dict[str, dict]:
+    summaries: dict[str, dict] = {}
+    for message in Message.select().order_by(Message.created_at.asc(), Message.id.asc()):
+        sender_device_id = str(message.sender_device_id)
+        summary = summaries.setdefault(
+            sender_device_id,
+            {
+                "message_count": 0,
+                "text_count": 0,
+                "media_count": 0,
+                "static_location_count": 0,
+                "live_location_count": 0,
+                "delivered_count": 0,
+                "first_created_at": message.created_at,
+                "last_created_at": message.created_at,
+            },
+        )
+        summary["message_count"] += 1
+        summary["delivered_count"] += int(message.delivered_at is not None)
+        summary["first_created_at"] = min(
+            summary["first_created_at"], message.created_at
+        )
+        summary["last_created_at"] = max(summary["last_created_at"], message.created_at)
+
+        if message.message_type == MessageType.TEXT.value:
+            summary["text_count"] += 1
+        elif message.message_type == MessageType.MEDIA.value:
+            summary["media_count"] += 1
+        elif message.message_type == MessageType.STATIC_LOCATION.value:
+            summary["static_location_count"] += 1
+        elif message.message_type == MessageType.LIVE_LOCATION.value:
+            summary["live_location_count"] += 1
+
+    return summaries
 
 
 def _append_header(sheet, values: list[str]) -> None:
@@ -136,24 +160,6 @@ def _append_header(sheet, values: list[str]) -> None:
         font = copy(cell.font)
         font.bold = True
         cell.font = font
-
-
-def _media_for_message(message: Message) -> Media | None:
-    if message.message_type != MessageType.MEDIA.value:
-        return None
-    return Media.get_or_none(Media.message == message.id)
-
-
-def _static_location_for_message(message: Message) -> StaticLocation | None:
-    if message.message_type != MessageType.STATIC_LOCATION.value:
-        return None
-    return StaticLocation.get_or_none(StaticLocation.message == message.id)
-
-
-def _live_location_for_message(message: Message) -> LiveLocationSession | None:
-    if message.message_type != MessageType.LIVE_LOCATION.value:
-        return None
-    return LiveLocationSession.get_or_none(LiveLocationSession.message == message.id)
 
 
 def _datetime_value(value):

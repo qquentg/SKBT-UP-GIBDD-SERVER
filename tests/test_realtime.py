@@ -123,6 +123,47 @@ def test_websocket_receives_live_location_point(client):
     assert point_event["point"] == point.json()
 
 
+def test_banned_observer_live_location_events_go_only_to_chief(client, monkeypatch):
+    from app.services import realtime
+
+    published_roles = []
+
+    def capture_employee_roles(roles, event):
+        published_roles.append((roles, event))
+
+    observer = register(client, "eyewitness", "j")
+    chief = register(client, "employee", "k")
+    ban = client.post(
+        f"/api/v1/employee/devices/{observer['device_id']}/ban",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    assert ban.status_code == 200
+
+    monkeypatch.setattr(
+        realtime.manager,
+        "publish_to_employee_roles",
+        capture_employee_roles,
+    )
+
+    started = client.post(
+        "/api/v1/messages/live-location/start",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={},
+    )
+    point = client.post(
+        f"/api/v1/messages/{started.json()['message_id']}/live-location/points",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"latitude": 55.7558, "longitude": 37.6173},
+    )
+
+    assert started.status_code == 200
+    assert point.status_code == 200
+    assert published_roles[0][0] == {"CHIEF"}
+    assert published_roles[0][1]["event"] == "message_created"
+    assert published_roles[1][0] == {"CHIEF"}
+    assert published_roles[1][1]["event"] == "live_location_point"
+
+
 def test_employee_websocket_uses_current_role_after_role_assignment(client):
     observer = register(client, "eyewitness", "g")
     chief = register(client, "employee", "h")

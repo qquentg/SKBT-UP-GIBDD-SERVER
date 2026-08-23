@@ -42,6 +42,15 @@ def test_chief_downloads_excel_report_with_required_sheets(client):
         f"/api/v1/employee/devices/{observer['device_id']}/ban",
         headers=auth_headers(chief["access_token"]),
     )
+    answer = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(chief["access_token"]),
+        json={
+            "observer_device_id": observer["device_id"],
+            "message_type": "TEXT",
+            "text": "answer",
+        },
+    )
     report = client.get(
         "/api/v1/employee/reports/excel",
         headers=auth_headers(chief["access_token"]),
@@ -49,6 +58,7 @@ def test_chief_downloads_excel_report_with_required_sheets(client):
 
     assert message.status_code == 200
     assert ban.status_code == 200
+    assert answer.status_code == 200
     assert report.status_code == 200
     assert report.headers["content-type"] == (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -77,21 +87,25 @@ def test_chief_downloads_excel_report_with_required_sheets(client):
         "created_at",
     ]
     assert [cell.value for cell in workbook["Messages"][1]] == [
-        "message_id",
-        "observer_device_id",
         "sender_device_id",
-        "message_type",
-        "text",
-        "created_at",
-        "delivered_at",
-        "media_storage_key",
-        "media_mime_type",
-        "static_latitude",
-        "static_longitude",
-        "live_ends_at",
+        "message_count",
+        "text_count",
+        "media_count",
+        "static_location_count",
+        "live_location_count",
+        "delivered_count",
+        "first_created_at",
+        "last_created_at",
     ]
     assert workbook["Bans"].max_row == 2
-    assert workbook["Messages"].max_row == 2
+    assert workbook["Messages"].max_row == 3
+
+    rows = {
+        row[0]: row[1:]
+        for row in workbook["Messages"].iter_rows(min_row=2, values_only=True)
+    }
+    assert rows[observer["device_id"]][:6] == (1, 1, 0, 0, 0, 0)
+    assert rows[chief["device_id"]][:6] == (1, 1, 0, 0, 0, 0)
 
 
 def test_admin_cannot_download_excel_report(client):

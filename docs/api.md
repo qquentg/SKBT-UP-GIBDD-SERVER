@@ -1992,6 +1992,8 @@ WebSocket не заменяет REST. При первом открытии эк�
 GET /api/v1/messages/{message_id}/live-location/points?after_recorded_at=<datetime>
 ```
 
+Если чат Очевидца сейчас заблокирован или сама live-трансляция была создана во время бана, employee-события по этой трансляции получают только устройства с ролью `CHIEF`.
+
 ### live_location_stopped
 
 Приходит, когда отправитель завершил live-геолокацию.
@@ -2135,21 +2137,19 @@ role
 created_at
 ```
 
-Лист `Messages`:
+Лист `Messages` агрегирован по `sender_device_id`.
+Одна строка означает статистику сообщений одного отправителя:
 
 ```text
-message_id
-observer_device_id
 sender_device_id
-message_type
-text
-created_at
-delivered_at
-media_storage_key
-media_mime_type
-static_latitude
-static_longitude
-live_ends_at
+message_count
+text_count
+media_count
+static_location_count
+live_location_count
+delivered_count
+first_created_at
+last_created_at
 ```
 
 Если отчёт запрашивает не `CHIEF`:
