@@ -51,8 +51,10 @@ class RealtimeManager:
 
     def publish_to_employee_roles(self, roles: set[str], event: dict) -> None:
         for connection in list(self._connections):
+            if connection.client_app != ClientApp.EMPLOYEE:
+                continue
             current_role = _current_role(connection.device_id)
-            if connection.client_app == ClientApp.EMPLOYEE and current_role in roles:
+            if current_role in roles:
                 self._enqueue(connection, event)
 
     def _enqueue(self, connection: RealtimeConnection, event: dict) -> None:
