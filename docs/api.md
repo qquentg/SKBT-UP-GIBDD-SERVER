@@ -2,6 +2,68 @@
 
 Документ описывает API, которое уже реализовано в backend.
 
+## Навигация
+
+### Быстро перейти
+
+- [Базовый адрес](#base-url)
+- [Общие правила и заголовки](#common-rules)
+- [Роли](#roles)
+- [Список всех endpoint'ов](#endpoints-list)
+- [Формат даты и времени](#datetime-format)
+- [Быстрый сценарий для frontend](#frontend-flow)
+
+### Основные сценарии
+
+- [Регистрация устройства](#device-register)
+- [Авторизация сотрудника](#employee-auth)
+- [Информация о себе](#employee-me)
+- [Список сотрудников](#employee-devices)
+- [Устройство по ID после QR](#employee-device-by-id)
+- [Выдать или заменить роль](#assign-role)
+- [Удалить роль](#remove-role)
+- [Забанить Очевидца](#ban-observer)
+- [История банов Очевидца](#observer-bans)
+- [Активный бан Очевидца для Сотрудника](#employee-active-ban)
+- [Активный бан текущего Очевидца](#eyewitness-active-ban)
+
+### Сообщения, медиа и геолокация
+
+- [Отправить текст](#send-text-message)
+- [Отправить статическую геолокацию](#send-static-location)
+- [Создать media-сообщение по storage_key](#send-media-by-storage-key)
+- [Загрузить media-файл](#media-upload)
+- [Скачать media-файл](#media-download)
+- [Начать live-геолокацию](#live-location-start)
+- [Добавить точку live-геолокации](#live-location-add-point)
+- [Завершить live-геолокацию](#live-location-stop)
+- [Получить точки live-геолокации](#live-location-get-points)
+- [Список чатов](#chats-list)
+- [Сообщения одного чата](#chat-messages)
+- [Отметить сообщение доставленным](#message-delivered)
+
+### Realtime, отчёты, push
+
+- [WebSocket / real-time](#realtime)
+- [Excel-отчёт](#excel-report)
+- [Push-уведомления](#push)
+
+### Короткая карта для frontend
+
+| Нужно сделать | Куда идти |
+| --- | --- |
+| Первый запуск APK | [`POST /api/v1/devices/register`](#device-register) |
+| Узнать роль сотрудника | [`GET /api/v1/employee/me`](#employee-me) |
+| Показать список чатов | [`GET /api/v1/chats`](#chats-list) |
+| Открыть чат | [`GET /api/v1/chats/{observer_device_id}/messages`](#chat-messages) |
+| Отправить фото/видео/gif | [`POST /api/v1/messages/media/upload`](#media-upload) |
+| Отправить точку на карте | [`POST /api/v1/messages/static-location`](#send-static-location) |
+| Live-геолокация | [`start`](#live-location-start), [`points`](#live-location-add-point), [`stop`](#live-location-stop) |
+| Проверить бан на экране Очевидца | [`GET /api/v1/devices/me/bans/active`](#eyewitness-active-ban) |
+| Получать события без polling | [`WS /api/v1/realtime`](#realtime) |
+
+<a id="base-url"></a>
+
 ## Базовый адрес
 
 Публичный тестовый сервер для APK:
@@ -49,6 +111,8 @@ FastAPI также автоматически отдает интерактив�
 /openapi.json
 ```
 
+<a id="common-rules"></a>
+
 ## Общие правила
 
 Все запросы и ответы используют JSON.
@@ -87,6 +151,8 @@ X-Client-App: employee
 - при повторной регистрации того же `fingerprint_hash` вернется тот же `device_id`, но новый `access_token`;
 - frontend должен сохранить последний полученный `access_token` и использовать именно его.
 
+<a id="roles"></a>
+
 ## Роли
 
 В системе сейчас есть роли:
@@ -103,6 +169,8 @@ CHIEF     - Начальник
 Следующие сотрудники автоматически роль не получают. Их должен назначить `ADMIN` или `CHIEF`.
 
 `CHIEF` может быть несколько. Автоматически выдается только первый `CHIEF`.
+
+<a id="endpoints-list"></a>
 
 ## Список эндпоинтов
 
@@ -136,6 +204,8 @@ PATCH  /api/v1/messages/{message_id}/delivered
 WS     /api/v1/realtime
 ```
 
+<a id="datetime-format"></a>
+
 ## Формат даты и времени
 
 Все поля времени приходят в ISO 8601.
@@ -156,6 +226,8 @@ Backend хранит и отдает время в UTC.
 Для Android это можно парсить как `Instant`.
 Если поле равно `null`, значит времени еще нет или срок бессрочный, например `ends_at: null` у постоянного бана.
 
+<a id="health"></a>
+
 ## GET /health
 
 Проверяет, что backend запущен.
@@ -175,6 +247,8 @@ curl https://силенок.рф:4401/health
   "status": "ok"
 }
 ```
+
+<a id="device-register"></a>
 
 ## POST /api/v1/devices/register
 
@@ -283,6 +357,8 @@ curl -X POST https://силенок.рф:4401/api/v1/devices/register \
 
 Если `fingerprint_hash` слишком короткий или слишком длинный, тоже будет `422`.
 
+<a id="employee-auth"></a>
+
 ## Авторизация сотрудника
 
 Все эндпоинты ниже относятся к приложению Сотрудника.
@@ -334,6 +410,8 @@ X-Client-App: employee
 
 Статус: `403 Forbidden`.
 
+<a id="employee-me"></a>
+
 ## GET /api/v1/employee/me
 
 Возвращает информацию о текущем устройстве сотрудника.
@@ -365,6 +443,8 @@ curl https://силенок.рф:4401/api/v1/employee/me \
   "role": null
 }
 ```
+
+<a id="employee-devices"></a>
 
 ## GET /api/v1/employee/devices
 
@@ -418,6 +498,8 @@ curl https://силенок.рф:4401/api/v1/employee/devices \
 ```
 
 Статус: `403 Forbidden`.
+
+<a id="employee-device-by-id"></a>
 
 ## GET /api/v1/employee/devices/{device_id}
 
@@ -482,6 +564,8 @@ curl https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f
 ```
 
 Статус: `422 Unprocessable Entity`.
+
+<a id="assign-role"></a>
 
 ## PUT /api/v1/employee/devices/{device_id}/role
 
@@ -620,6 +704,8 @@ curl -X PUT https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c
 
 Статус: `422 Unprocessable Entity`.
 
+<a id="remove-role"></a>
+
 ## DELETE /api/v1/employee/devices/{device_id}/role
 
 Удаляет текущую роль у устройства.
@@ -686,6 +772,8 @@ curl -X DELETE https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c
 422 - device_id не UUID
 ```
 
+<a id="ban-observer"></a>
+
 ## POST /api/v1/employee/devices/{device_id}/ban
 
 Блокирует Очевидца.
@@ -751,6 +839,8 @@ curl -X POST https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1
 422 - device_id не UUID
 ```
 
+<a id="observer-bans"></a>
+
 ## GET /api/v1/employee/devices/{device_id}/bans
 
 Возвращает историю банов Очевидца.
@@ -789,6 +879,8 @@ curl https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f
 }
 ```
 
+<a id="employee-active-ban"></a>
+
 ## GET /api/v1/employee/devices/{device_id}/bans/active
 
 Возвращает активный бан Очевидца, если он есть.
@@ -816,6 +908,8 @@ curl https://силенок.рф:4401/api/v1/employee/devices/2b2c9f3c-1c9a-4b1f
   }
 }
 ```
+
+<a id="eyewitness-active-ban"></a>
 
 ## GET /api/v1/devices/me/bans/active
 
@@ -856,6 +950,8 @@ X-Client-App: eyewitness
 
 Если `ends_at` равен `null`, бан постоянный.
 
+<a id="banned-eyewitness-rules"></a>
+
 ## Что меняется для забаненного Очевидца
 
 Если Очевидец забанен, backend не удаляет его сообщения.
@@ -887,6 +983,8 @@ ADMIN / INSPECTOR -> не видят активный заблокированн
 GET /api/v1/employee/devices/{observer_device_id}/bans/active
 GET /api/v1/devices/me/bans/active
 ```
+
+<a id="send-text-message"></a>
 
 ## POST /api/v1/messages
 
@@ -1007,6 +1105,8 @@ CHIEF
 
 Статус: `403 Forbidden`.
 
+<a id="send-static-location"></a>
+
 ## POST /api/v1/messages/static-location
 
 Создает сообщение со статической точкой на карте.
@@ -1069,6 +1169,8 @@ longitude от -180 до 180
   "delivered_at": null
 }
 ```
+
+<a id="send-media-by-storage-key"></a>
 
 ## POST /api/v1/messages/media
 
@@ -1139,6 +1241,8 @@ Backend проверяет, что файл по `storage_key` реально с
   "delivered_at": null
 }
 ```
+
+<a id="media-upload"></a>
 
 ## POST /api/v1/messages/media/upload
 
@@ -1230,6 +1334,8 @@ curl -X POST https://силенок.рф:4401/api/v1/messages/media/upload \
 422 - Media file cannot be empty
 ```
 
+<a id="media-download"></a>
+
 ## GET /api/v1/messages/{message_id}/media
 
 Возвращает файл медиа-сообщения.
@@ -1266,6 +1372,8 @@ curl https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41de-ae37-5f
 404 - Media file not found
 410 - Media file has expired
 ```
+
+<a id="live-location-start"></a>
 
 ## POST /api/v1/messages/live-location/start
 
@@ -1329,6 +1437,8 @@ ends_at = текущее время + 15 минут
 }
 ```
 
+<a id="live-location-add-point"></a>
+
 ## POST /api/v1/messages/{message_id}/live-location/points
 
 Добавляет точку в live-трансляцию.
@@ -1385,6 +1495,8 @@ longitude от -180 до 180
 
 Статус: `403 Forbidden`.
 
+<a id="live-location-stop"></a>
+
 ## POST /api/v1/messages/{message_id}/live-location/stop
 
 Завершает live-трансляцию раньше 15 минут.
@@ -1415,6 +1527,8 @@ ends_at = текущее время
   "delivered_at": null
 }
 ```
+
+<a id="live-location-get-points"></a>
 
 ## GET /api/v1/messages/{message_id}/live-location/points
 
@@ -1470,6 +1584,8 @@ limit минимум 1
 limit максимум 300
 по умолчанию 100
 ```
+
+<a id="chats-list"></a>
 
 ## GET /api/v1/chats
 
@@ -1628,6 +1744,8 @@ curl https://силенок.рф:4401/api/v1/chats \
   "chats": []
 }
 ```
+
+<a id="chat-messages"></a>
 
 ## GET /api/v1/chats/{observer_device_id}/messages
 
@@ -1839,6 +1957,8 @@ limit максимум 100
 
 Статус: `400 Bad Request`.
 
+<a id="message-delivered"></a>
+
 ## PATCH /api/v1/messages/{message_id}/delivered
 
 Отмечает сообщение как доставленное.
@@ -1896,6 +2016,8 @@ curl -X PATCH https://силенок.рф:4401/api/v1/messages/7d62ef94-d6ef-41d
 ```
 
 Статус: `404 Not Found`.
+
+<a id="realtime"></a>
 
 ## WebSocket / real-time
 
@@ -2075,6 +2197,8 @@ GET /api/v1/messages/{message_id}/live-location/points?after_recorded_at=<dateti
 }
 ```
 
+<a id="excel-report"></a>
+
 ## GET /api/v1/employee/reports/excel
 
 Скачивает Excel-отчёт. Доступен только устройствам с ролью `CHIEF`.
@@ -2162,6 +2286,8 @@ last_created_at
 
 Статус: `403 Forbidden`.
 
+<a id="push"></a>
+
 ## Push-уведомления
 
 Отдельных endpoint'ов для push нет.
@@ -2223,6 +2349,8 @@ PUSH_REQUEST_TIMEOUT_SECONDS=3
 Если эти переменные не настроены, backend продолжит сохранять `push_token` и работать с API, но внешняя отправка push в FCM будет пропущена.
 Сами запросы создания сообщений и банов из-за ошибки push-доставки не падают.
 
+<a id="frontend-flow"></a>
+
 ## Быстрый сценарий для frontend
 
 Минимальный порядок работы для приложения Сотрудника:
@@ -2261,6 +2389,8 @@ PUSH_REQUEST_TIMEOUT_SECONDS=3
 10. Чтобы получить сообщения своего чата, вызвать `GET /api/v1/chats/{device_id}/messages`.
 11. Чтобы отметить сообщение доставленным, вызвать `PATCH /api/v1/messages/{message_id}/delivered`.
 12. Чтобы получать новые события без постоянного опроса REST, открыть `WS /api/v1/realtime`.
+
+<a id="important-notes"></a>
 
 ## Что важно помнить
 
