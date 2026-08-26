@@ -213,60 +213,98 @@ def render_page(
   <style>
     :root {{
       color-scheme: light;
-      --bg: #f5f7fb;
+      --bg: #f3f6fb;
       --panel: #ffffff;
-      --line: #d8dee9;
-      --text: #152033;
-      --muted: #667085;
-      --accent: #174ea6;
+      --line: #d7deea;
+      --line-soft: #edf1f7;
+      --text: #111827;
+      --muted: #64748b;
+      --accent: #155eef;
+      --accent-soft: #eff4ff;
       --danger: #b42318;
       --ok: #067647;
+      --shadow: 0 12px 30px rgba(15, 23, 42, .08);
     }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }}
-    header {{ padding: 18px 24px; background: #16233f; color: #fff; }}
-    h1 {{ margin: 0; font-size: 22px; }}
-    main {{ padding: 20px 24px 40px; }}
-    section {{ margin: 0 0 22px; }}
-    h2 {{ margin: 0 0 12px; font-size: 18px; }}
+    header {{ padding: 22px 28px; background: linear-gradient(135deg, #10213f, #1d4ed8); color: #fff; box-shadow: var(--shadow); }}
+    .topbar {{ display: flex; justify-content: space-between; gap: 16px; align-items: center; max-width: 1480px; margin: 0 auto; }}
+    h1 {{ margin: 0; font-size: 24px; line-height: 1.2; }}
+    .pill {{ display: inline-flex; align-items: center; min-height: 28px; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.22); font-size: 13px; white-space: nowrap; }}
+    main {{ max-width: 1480px; margin: 0 auto; padding: 22px 28px 44px; }}
+    section {{ margin: 0 0 24px; }}
+    .section-head {{ display: flex; justify-content: space-between; gap: 12px; align-items: end; margin-bottom: 10px; }}
+    h2 {{ margin: 0; font-size: 19px; line-height: 1.25; }}
+    .section-note {{ color: var(--muted); font-size: 13px; }}
     .notice {{ padding: 10px 12px; margin-bottom: 16px; border-radius: 6px; background: #ecfdf3; color: var(--ok); border: 1px solid #abefc6; }}
     .error {{ padding: 10px 12px; margin-bottom: 16px; border-radius: 6px; background: #fef3f2; color: var(--danger); border: 1px solid #fecdca; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }}
-    .stat {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
-    .stat b {{ display: block; font-size: 22px; margin-top: 5px; }}
-    .table-wrap {{ overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }}
+    .stat {{ background: var(--panel); border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px; box-shadow: 0 6px 16px rgba(15,23,42,.04); }}
+    .stat span {{ display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }}
+    .stat b {{ display: block; font-size: 26px; line-height: 1.1; margin-top: 7px; }}
+    .meta-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }}
+    .meta-card {{ background: var(--panel); border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px; }}
+    .meta-title {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }}
+    .badges {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .badge {{ display: inline-flex; gap: 6px; align-items: center; min-height: 26px; padding: 4px 9px; border-radius: 999px; background: var(--accent-soft); color: #1849a9; font-size: 12px; font-weight: 700; }}
+    .table-wrap {{ overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 22px rgba(15,23,42,.05); }}
     table {{ width: 100%; border-collapse: collapse; min-width: 900px; }}
-    th, td {{ padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; font-size: 13px; }}
-    th {{ background: #eef2f7; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }}
-    code {{ font-family: Consolas, monospace; font-size: 12px; }}
+    th, td {{ padding: 10px 11px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; font-size: 13px; }}
+    th {{ background: #f8fafc; color: #475467; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; position: sticky; top: 0; }}
+    tr:hover td {{ background: #fbfdff; }}
+    code {{ font-family: Consolas, monospace; font-size: 12px; background: #f8fafc; border: 1px solid var(--line-soft); border-radius: 5px; padding: 2px 4px; }}
     .muted {{ color: var(--muted); }}
     form {{ display: flex; gap: 8px; align-items: center; }}
-    select, button {{ height: 32px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }}
-    button {{ padding: 0 12px; background: var(--accent); color: #fff; border-color: var(--accent); cursor: pointer; }}
+    select, button {{ height: 34px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }}
+    select {{ min-width: 122px; padding: 0 8px; }}
+    button {{ padding: 0 13px; background: var(--accent); color: #fff; border-color: var(--accent); cursor: pointer; font-weight: 700; }}
+    button:hover {{ background: #004eeb; }}
     .role {{ font-weight: 700; }}
+    .role-tag {{ display: inline-flex; min-height: 24px; align-items: center; padding: 3px 8px; border-radius: 999px; background: #eef2ff; color: #3538cd; font-size: 12px; font-weight: 700; }}
+    .role-empty {{ background: #f2f4f7; color: #475467; }}
+    @media (max-width: 720px) {{
+      header {{ padding: 18px; }}
+      .topbar {{ align-items: flex-start; flex-direction: column; }}
+      main {{ padding: 18px; }}
+      .section-head {{ align-items: flex-start; flex-direction: column; }}
+    }}
   </style>
 </head>
 <body>
   <header>
-    <h1>ГИБДД-Очевидец: временная админка</h1>
-    <div>Одноразовый запуск для тестирования. Не systemd-сервис.</div>
+    <div class="topbar">
+      <h1>ГИБДД-Очевидец: админ-панель</h1>
+      <div class="pill">порт 4411</div>
+    </div>
   </header>
   <main>
     {render_flash(message=message, error=error)}
     <section>
-      <h2>Статистика</h2>
+      <div class="section-head">
+        <h2>Статистика</h2>
+        <div class="section-note">Сводка по базе и активности за последние 24 часа</div>
+      </div>
       {render_stats(stats)}
     </section>
     <section>
-      <h2>Устройства и роли</h2>
+      <div class="section-head">
+        <h2>Устройства и роли</h2>
+        <div class="section-note">Выдача, замена и снятие роли у конкретного device_id</div>
+      </div>
       {render_devices(devices)}
     </section>
     <section>
-      <h2>Сообщения за последние 24 часа</h2>
+      <div class="section-head">
+        <h2>Сообщения за последние 24 часа</h2>
+        <div class="section-note">Последние 200 записей</div>
+      </div>
       {render_messages(messages)}
     </section>
     <section>
-      <h2>Медиа за последние 24 часа</h2>
+      <div class="section-head">
+        <h2>Медиа за последние 24 часа</h2>
+        <div class="section-note">Последние 100 файлов</div>
+      </div>
       {render_media(media_rows)}
     </section>
   </main>
@@ -285,18 +323,22 @@ def render_flash(*, message: str | None, error: str | None) -> str:
 def render_stats(stats: dict[str, object]) -> str:
     roles = stats["roles"]
     message_types = stats["message_types_24h"]
+    role_badges = render_badges(roles)
+    message_type_badges = render_badges(message_types)
     return f"""
 <div class="grid">
-  <div class="stat">Всего устройств <b>{stats["total_devices"]}</b></div>
-  <div class="stat">Активны за 24ч <b>{stats["active_devices_24h"]}</b></div>
-  <div class="stat">С push token <b>{stats["devices_with_push"]}</b></div>
-  <div class="stat">Сообщения за 24ч <b>{stats["messages_24h"]}</b></div>
-  <div class="stat">Медиа за 24ч <b>{stats["media_24h"]}</b></div>
-  <div class="stat">Статическая гео за 24ч <b>{stats["static_locations_24h"]}</b></div>
-  <div class="stat">Live-сессии за 24ч <b>{stats["live_sessions_24h"]}</b></div>
-  <div class="stat">Live-точки за 24ч <b>{stats["live_points_24h"]}</b></div>
-  <div class="stat">Роли <b>{escape(str(roles))}</b></div>
-  <div class="stat">Типы сообщений 24ч <b>{escape(str(message_types))}</b></div>
+  <div class="stat"><span>Всего устройств</span><b>{stats["total_devices"]}</b></div>
+  <div class="stat"><span>Активны за 24ч</span><b>{stats["active_devices_24h"]}</b></div>
+  <div class="stat"><span>С push token</span><b>{stats["devices_with_push"]}</b></div>
+  <div class="stat"><span>Сообщения за 24ч</span><b>{stats["messages_24h"]}</b></div>
+  <div class="stat"><span>Медиа за 24ч</span><b>{stats["media_24h"]}</b></div>
+  <div class="stat"><span>Статическая гео за 24ч</span><b>{stats["static_locations_24h"]}</b></div>
+  <div class="stat"><span>Live-сессии за 24ч</span><b>{stats["live_sessions_24h"]}</b></div>
+  <div class="stat"><span>Live-точки за 24ч</span><b>{stats["live_points_24h"]}</b></div>
+</div>
+<div class="meta-grid">
+  <div class="meta-card"><div class="meta-title">Роли</div><div class="badges">{role_badges}</div></div>
+  <div class="meta-card"><div class="meta-title">Типы сообщений за 24ч</div><div class="badges">{message_type_badges}</div></div>
 </div>"""
 
 
@@ -307,7 +349,7 @@ def render_devices(devices: list[Device]) -> str:
             f"""<tr>
   <td><code>{escape(str(device.id))}</code></td>
   <td><code>{escape(short_hash(device.fingerprint_hash))}</code></td>
-  <td class="role">{escape(device.current_role or "NO_ROLE")}</td>
+  <td class="role">{role_tag(device.current_role)}</td>
   <td>{yes_no(bool(device.push_token))}</td>
   <td>{fmt_dt(device.last_activity_at)}</td>
   <td>{render_role_form(device)}</td>
@@ -330,6 +372,21 @@ def render_role_form(device: Device) -> str:
   <select name="role">{option_html}</select>
   <button type="submit">Сохранить</button>
 </form>"""
+
+
+def role_tag(role: str | None) -> str:
+    value = role or "NO_ROLE"
+    extra_class = " role-empty" if role is None else ""
+    return f'<span class="role-tag{extra_class}">{escape(value)}</span>'
+
+
+def render_badges(values: object) -> str:
+    if not isinstance(values, dict) or not values:
+        return '<span class="muted">Нет данных</span>'
+    return "".join(
+        f'<span class="badge">{escape(str(key))}: {escape(str(value))}</span>'
+        for key, value in values.items()
+    )
 
 
 def render_messages(messages: list[Message]) -> str:
