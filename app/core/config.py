@@ -32,6 +32,10 @@ class Settings(BaseSettings):
         default=3.0,
         validation_alias="PUSH_REQUEST_TIMEOUT_SECONDS",
     )
+    admin_panel_password: str | None = Field(
+        default=None,
+        validation_alias="ADMIN_PANEL_PASSWORD",
+    )
 
 
 @lru_cache
