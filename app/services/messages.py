@@ -352,6 +352,25 @@ def list_chats(actor: Device) -> list[Message]:
     return list(latest_by_observer.values())
 
 
+def count_unread_chat_messages(*, actor: Device, observer_device_id: UUID) -> int:
+    require_employee_chat_access(actor)
+
+    unread_count = 0
+    query = (
+        Message.select()
+        .where(
+            (Message.observer_device == observer_device_id)
+            & (Message.sender_device == observer_device_id)
+            & (Message.delivered_at.is_null())
+        )
+        .order_by(Message.created_at.asc(), Message.id.asc())
+    )
+    for message in query:
+        if _message_visible_to_employee(actor=actor, message=message):
+            unread_count += 1
+    return unread_count
+
+
 def list_chat_messages(
     *,
     actor: Device,

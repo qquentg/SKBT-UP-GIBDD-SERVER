@@ -57,6 +57,7 @@ def test_eyewitness_sends_text_and_employee_reads_chat(client):
         {
             "observer_device_id": observer["device_id"],
             "last_message_id": created.json()["message_id"],
+            "last_sender_device_id": observer["device_id"],
             "last_message_type": "TEXT",
             "last_text": "Нужна помощь на дороге",
             "last_static_location": None,
@@ -64,6 +65,7 @@ def test_eyewitness_sends_text_and_employee_reads_chat(client):
             "last_live_location": None,
             "last_created_at": created.json()["created_at"],
             "last_delivered_at": None,
+            "unread_count": 1,
             "active_ban": None,
         }
     ]
@@ -111,6 +113,64 @@ def test_employee_answers_chat_and_marks_message_delivered_once(client):
     assert delivered_again.status_code == 200
     assert delivered_again.json()["delivered_at"] == delivered.json()["delivered_at"]
     assert Message.select().count() == 2
+
+
+def test_employee_own_undelivered_message_is_not_unread_in_chat_list(client):
+    observer = register(client, "eyewitness", "A")
+    chief = register(client, "employee", "B")
+
+    answer = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(chief["access_token"], "employee"),
+        json={
+            "message_type": "TEXT",
+            "observer_device_id": observer["device_id"],
+            "text": "Inspector is on the way",
+        },
+    )
+    chats = client.get(
+        "/api/v1/chats",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert answer.status_code == 200
+    assert answer.json()["delivered_at"] is None
+
+    assert chats.status_code == 200
+    assert chats.json()["chats"][0]["last_message_id"] == answer.json()["message_id"]
+    assert chats.json()["chats"][0]["last_sender_device_id"] == chief["device_id"]
+    assert chats.json()["chats"][0]["last_delivered_at"] is None
+    assert chats.json()["chats"][0]["unread_count"] == 0
+
+
+def test_chat_list_unread_count_uses_observer_messages_only(client):
+    observer = register(client, "eyewitness", "A")
+    chief = register(client, "employee", "B")
+
+    first = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "TEXT", "text": "first"},
+    ).json()
+    second = client.post(
+        "/api/v1/messages",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"message_type": "TEXT", "text": "second"},
+    ).json()
+    client.patch(
+        f"/api/v1/messages/{first['message_id']}/delivered",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    chats = client.get(
+        "/api/v1/chats",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert chats.status_code == 200
+    assert chats.json()["chats"][0]["last_message_id"] == second["message_id"]
+    assert chats.json()["chats"][0]["last_sender_device_id"] == observer["device_id"]
+    assert chats.json()["chats"][0]["unread_count"] == 1
 
 
 def test_chat_messages_support_after_message_id(client):

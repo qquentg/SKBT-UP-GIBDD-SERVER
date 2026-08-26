@@ -1617,6 +1617,15 @@ ADMIN
 CHIEF
 ```
 
+Новые поля для индикатора непрочитанных:
+
+```text
+last_sender_device_id - кто отправил последнее сообщение в чате
+unread_count          - сколько входящих сообщений от Очевидца еще не доставлено текущему Сотруднику
+```
+
+Frontend не должен считать непрочитанные сообщения только по `last_delivered_at`: если последнее сообщение отправил сам Сотрудник и оно еще не доставлено Очевидцу, `last_delivered_at` тоже будет `null`. Для бейджа непрочитанных используйте `unread_count`.
+
 ### Пример запроса
 
 ```bash
@@ -1633,6 +1642,7 @@ curl https://силенок.рф:4401/api/v1/chats \
     {
       "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
       "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0001",
+      "last_sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
       "last_message_type": "TEXT",
       "last_text": "Нужна помощь на дороге",
       "last_static_location": null,
@@ -1640,6 +1650,7 @@ curl https://силенок.рф:4401/api/v1/chats \
       "last_live_location": null,
       "last_created_at": "2026-08-20T13:30:00Z",
       "last_delivered_at": null,
+      "unread_count": 1,
       "active_ban": null
     }
   ]
@@ -1654,6 +1665,7 @@ curl https://силенок.рф:4401/api/v1/chats \
     {
       "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
       "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0001",
+      "last_sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
       "last_message_type": "TEXT",
       "last_text": "Нужна помощь на дороге",
       "last_static_location": null,
@@ -1661,6 +1673,7 @@ curl https://силенок.рф:4401/api/v1/chats \
       "last_live_location": null,
       "last_created_at": "2026-08-20T13:30:00Z",
       "last_delivered_at": null,
+      "unread_count": 1,
       "active_ban": {
         "ban_id": "8fdc98ed-fb31-41a6-b77e-6e12c26ec9a1",
         "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
@@ -1683,6 +1696,7 @@ curl https://силенок.рф:4401/api/v1/chats \
 {
   "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0002",
+  "last_sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "last_message_type": "MEDIA",
   "last_text": null,
   "last_static_location": null,
@@ -1694,6 +1708,7 @@ curl https://силенок.рф:4401/api/v1/chats \
   "last_live_location": null,
   "last_created_at": "2026-08-23T12:31:00Z",
   "last_delivered_at": null,
+  "unread_count": 1,
   "active_ban": null
 }
 ```
@@ -1704,6 +1719,7 @@ curl https://силенок.рф:4401/api/v1/chats \
 {
   "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0004",
+  "last_sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "last_message_type": "STATIC_LOCATION",
   "last_text": null,
   "last_static_location": {
@@ -1714,6 +1730,7 @@ curl https://силенок.рф:4401/api/v1/chats \
   "last_live_location": null,
   "last_created_at": "2026-08-23T12:33:00Z",
   "last_delivered_at": null,
+  "unread_count": 1,
   "active_ban": null
 }
 ```
@@ -1724,6 +1741,7 @@ curl https://силенок.рф:4401/api/v1/chats \
 {
   "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "last_message_id": "7d62ef94-d6ef-41de-ae37-5fb5bb2b0005",
+  "last_sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "last_message_type": "LIVE_LOCATION",
   "last_text": null,
   "last_static_location": null,
@@ -1733,6 +1751,7 @@ curl https://силенок.рф:4401/api/v1/chats \
   },
   "last_created_at": "2026-08-23T12:33:00Z",
   "last_delivered_at": null,
+  "unread_count": 1,
   "active_ban": null
 }
 ```

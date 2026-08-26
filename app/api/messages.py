@@ -41,6 +41,7 @@ from app.schemas.messages import (
 from app.services.messages import (
     MEDIA_UPLOAD_MAX_BYTES,
     add_live_location_point,
+    count_unread_chat_messages,
     create_live_location_message,
     create_media_message,
     create_static_location_message,
@@ -227,7 +228,7 @@ def get_chats(
     _: None = Depends(require_employee_client),
     actor: Device = Depends(get_authorized_device),
 ) -> ChatsResponse:
-    chats = [_chat_response(message) for message in list_chats(actor)]
+    chats = [_chat_response(message, actor) for message in list_chats(actor)]
     return ChatsResponse(chats=chats)
 
 
@@ -303,12 +304,13 @@ def _message_response(message: Message) -> MessageResponse:
     )
 
 
-def _chat_response(message: Message) -> ChatResponse:
+def _chat_response(message: Message, actor: Device) -> ChatResponse:
     message_response = _message_response(message)
     active_ban = get_active_ban(message.observer_device_id)
     return ChatResponse(
         observer_device_id=message_response.observer_device_id,
         last_message_id=message_response.message_id,
+        last_sender_device_id=message_response.sender_device_id,
         last_message_type=message_response.message_type,
         last_text=message_response.text,
         last_static_location=message_response.static_location,
@@ -316,6 +318,10 @@ def _chat_response(message: Message) -> ChatResponse:
         last_live_location=message_response.live_location,
         last_created_at=message_response.created_at,
         last_delivered_at=message_response.delivered_at,
+        unread_count=count_unread_chat_messages(
+            actor=actor,
+            observer_device_id=message.observer_device_id,
+        ),
         active_ban=_ban_response(active_ban) if active_ban is not None else None,
     )
 

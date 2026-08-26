@@ -79,6 +79,7 @@ class MessageResponse(BaseModel):
 class ChatResponse(BaseModel):
     observer_device_id: UUID
     last_message_id: UUID
+    last_sender_device_id: UUID
     last_message_type: MessageType
     last_text: str | None
     last_static_location: StaticLocationResponse | None = None
@@ -86,6 +87,7 @@ class ChatResponse(BaseModel):
     last_live_location: LiveLocationResponse | None = None
     last_created_at: datetime
     last_delivered_at: datetime | None
+    unread_count: int
     active_ban: BanResponse | None = None
 
 
