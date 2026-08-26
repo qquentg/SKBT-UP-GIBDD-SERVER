@@ -171,7 +171,7 @@ def _message_notifications(message: Message) -> list[PushNotification]:
         "message_id": str(message.id),
         "observer_device_id": str(message.observer_device_id),
         "sender_device_id": str(message.sender_device_id),
-        "message_type": message.message_type,
+        "chat_message_type": message.message_type,
     }
 
     if str(message.sender_device_id) == str(message.observer_device_id):

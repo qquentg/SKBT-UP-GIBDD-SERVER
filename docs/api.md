@@ -2343,7 +2343,7 @@ Frontend передает push-токен только в `POST /api/v1/devices/
 - сохраняет `push_token` в `devices.push_token`;
 - при повторной регистрации того же устройства обновляет `push_token`;
 - при новом сообщении от Очевидца отправляет push всем employee-устройствам с ролью `INSPECTOR`, `ADMIN` или `CHIEF`, если у них есть `push_token`;
-- при новом сообщении от забаненного Очевидца отправляет push только `CHIEF`;
+- при активном бане Очевидца новое сообщение не создается, поэтому push по этому сообщению не отправляется;
 - при новом сообщении от Сотрудника отправляет push Очевидцу, если у него есть `push_token`;
 - при бане Очевидца отправляет push самому Очевидцу и другим `CHIEF`-устройствам;
 - при старте live-геолокации отправляет один push о новом сообщении типа `LIVE_LOCATION`;
@@ -2360,9 +2360,11 @@ Push не заменяет REST API.
   "message_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0004",
   "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
   "sender_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
-  "message_type": "TEXT"
+  "chat_message_type": "TEXT"
 }
 ```
+
+В push используется ключ `chat_message_type`, а не `message_type`: Firebase отклоняет `message_type` внутри `data`.
 
 Для бана:
 

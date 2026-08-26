@@ -65,7 +65,7 @@ def test_eyewitness_message_pushes_to_employee_devices_with_roles(client, monkey
         "inspector-token",
     }
     assert {notification.data["event"] for notification in sent} == {"message_created"}
-    assert {notification.data["message_type"] for notification in sent} == {"TEXT"}
+    assert {notification.data["chat_message_type"] for notification in sent} == {"TEXT"}
     assert all(
         notification.data["observer_device_id"] == observer["device_id"]
         for notification in sent
@@ -162,4 +162,4 @@ def test_live_location_points_do_not_create_extra_pushes(client, monkeypatch):
     assert started.status_code == 200
     assert point.status_code == 200
     assert [notification.push_token for notification in sent] == ["chief-token"]
-    assert sent[0].data["message_type"] == "LIVE_LOCATION"
+    assert sent[0].data["chat_message_type"] == "LIVE_LOCATION"
