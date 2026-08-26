@@ -32,7 +32,7 @@ def assign_role(client, actor: dict, target: dict, role: str) -> dict:
     return response.json()
 
 
-def test_inspector_can_ban_observer_and_chief_receives_banned_messages(client):
+def test_inspector_can_ban_observer_and_observer_messages_are_blocked(client):
     observer = register(client, "eyewitness", "A")
     chief = register(client, "employee", "B")
     inspector = register(client, "employee", "C")
@@ -81,19 +81,57 @@ def test_inspector_can_ban_observer_and_chief_receives_banned_messages(client):
         days=1, minutes=1
     )
 
-    assert blocked_message.status_code == 200
-    assert blocked_message.json()["text"] == "blocked"
+    assert blocked_message.status_code == 403
+    assert blocked_message.json()["detail"] == "Observer device is banned"
 
     assert chief_messages.status_code == 200
-    assert [message["text"] for message in chief_messages.json()["messages"]] == [
-        "blocked"
-    ]
+    assert chief_messages.json() == {"messages": []}
 
     assert inspector_messages.status_code == 403
     assert inspector_messages.json()["detail"] == "Banned chat is visible only to CHIEF"
 
     assert employee_answer.status_code == 200
     assert employee_answer.json()["observer_device_id"] == observer["device_id"]
+
+
+def test_banned_observer_cannot_send_static_media_or_live_location(client):
+    observer = register(client, "eyewitness", "V")
+    chief = register(client, "employee", "W")
+
+    ban = client.post(
+        f"/api/v1/employee/devices/{observer['device_id']}/ban",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    static_location = client.post(
+        "/api/v1/messages/static-location",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"latitude": 55.7558, "longitude": 37.6173},
+    )
+    media = client.post(
+        "/api/v1/messages/media",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={"storage_key": "missing.jpg", "mime_type": "image/jpeg"},
+    )
+    media_upload = client.post(
+        "/api/v1/messages/media/upload",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        files={"file": ("photo.jpg", b"jpeg-bytes", "image/jpeg")},
+    )
+    live_location = client.post(
+        "/api/v1/messages/live-location/start",
+        headers=auth_headers(observer["access_token"], "eyewitness"),
+        json={},
+    )
+
+    assert ban.status_code == 200
+    assert static_location.status_code == 403
+    assert static_location.json()["detail"] == "Observer device is banned"
+    assert media.status_code == 403
+    assert media.json()["detail"] == "Observer device is banned"
+    assert media_upload.status_code == 403
+    assert media_upload.json()["detail"] == "Observer device is banned"
+    assert live_location.status_code == 403
+    assert live_location.json()["detail"] == "Observer device is banned"
 
 
 def test_repeated_active_ban_does_not_escalate(client):
@@ -177,11 +215,6 @@ def test_messages_sent_during_ban_stay_hidden_after_ban_ends(client):
         f"/api/v1/employee/devices/{observer['device_id']}/ban",
         headers=auth_headers(chief["access_token"], "employee"),
     ).json()
-    during_ban = client.post(
-        "/api/v1/messages",
-        headers=auth_headers(observer["access_token"], "eyewitness"),
-        json={"message_type": "TEXT", "text": "during ban"},
-    )
     ban_started_at = utc_now() - timedelta(days=2)
     ban_ends_at = ban_started_at + timedelta(days=1)
     Message.update(created_at=ban_started_at - timedelta(minutes=1)).where(
@@ -190,9 +223,13 @@ def test_messages_sent_during_ban_stay_hidden_after_ban_ends(client):
     Ban.update(started_at=ban_started_at, ends_at=ban_ends_at).where(
         Ban.id == ban["ban_id"]
     ).execute()
-    Message.update(created_at=ban_started_at + timedelta(minutes=1)).where(
-        Message.id == during_ban.json()["message_id"]
-    ).execute()
+    Message.create(
+        observer_device=observer["device_id"],
+        sender_device=observer["device_id"],
+        message_type="TEXT",
+        text="during ban",
+        created_at=ban_started_at + timedelta(minutes=1),
+    )
     after_ban = client.post(
         "/api/v1/messages",
         headers=auth_headers(observer["access_token"], "eyewitness"),
@@ -213,7 +250,6 @@ def test_messages_sent_during_ban_stay_hidden_after_ban_ends(client):
     )
 
     assert before_ban.status_code == 200
-    assert during_ban.status_code == 200
     assert after_ban.status_code == 200
 
     assert chief_messages.status_code == 200

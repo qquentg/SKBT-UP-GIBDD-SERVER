@@ -123,45 +123,50 @@ def test_websocket_receives_live_location_point(client):
     assert point_event["point"] == point.json()
 
 
-def test_banned_observer_live_location_events_go_only_to_chief(client, monkeypatch):
+def test_ban_realtime_notifies_observer_and_chief(client, monkeypatch):
     from app.services import realtime
 
+    published_devices = []
     published_roles = []
+
+    def capture_devices(device_ids, event):
+        published_devices.append((device_ids, event))
 
     def capture_employee_roles(roles, event):
         published_roles.append((roles, event))
 
     observer = register(client, "eyewitness", "j")
     chief = register(client, "employee", "k")
-    ban = client.post(
-        f"/api/v1/employee/devices/{observer['device_id']}/ban",
-        headers=auth_headers(chief["access_token"], "employee"),
+    monkeypatch.setattr(
+        realtime.manager,
+        "publish_to_devices",
+        capture_devices,
     )
-    assert ban.status_code == 200
-
     monkeypatch.setattr(
         realtime.manager,
         "publish_to_employee_roles",
         capture_employee_roles,
     )
 
+    ban = client.post(
+        f"/api/v1/employee/devices/{observer['device_id']}/ban",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+    assert ban.status_code == 200
+
     started = client.post(
         "/api/v1/messages/live-location/start",
         headers=auth_headers(observer["access_token"], "eyewitness"),
         json={},
     )
-    point = client.post(
-        f"/api/v1/messages/{started.json()['message_id']}/live-location/points",
-        headers=auth_headers(observer["access_token"], "eyewitness"),
-        json={"latitude": 55.7558, "longitude": 37.6173},
-    )
 
-    assert started.status_code == 200
-    assert point.status_code == 200
+    assert published_devices[0][0] == {observer["device_id"]}
+    assert published_devices[0][1]["event"] == "observer_banned"
     assert published_roles[0][0] == {"CHIEF"}
-    assert published_roles[0][1]["event"] == "message_created"
-    assert published_roles[1][0] == {"CHIEF"}
-    assert published_roles[1][1]["event"] == "live_location_point"
+    assert published_roles[0][1]["event"] == "observer_banned"
+
+    assert started.status_code == 403
+    assert started.json()["detail"] == "Observer device is banned"
 
 
 def test_employee_websocket_uses_current_role_after_role_assignment(client):

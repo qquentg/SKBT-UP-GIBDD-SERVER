@@ -117,7 +117,7 @@ def test_ban_pushes_to_observer_and_other_chief_devices(client, monkeypatch):
     )
 
 
-def test_banned_observer_message_pushes_only_to_chief_devices(client, monkeypatch):
+def test_banned_observer_message_does_not_create_push(client, monkeypatch):
     sent = capture_push(monkeypatch)
     observer = register(client, "eyewitness", "m")
     chief = register(client, "employee", "n", "chief-token")
@@ -138,9 +138,9 @@ def test_banned_observer_message_pushes_only_to_chief_devices(client, monkeypatc
     )
 
     assert ban.status_code == 200
-    assert message.status_code == 200
-    assert [notification.push_token for notification in sent] == ["chief-token"]
-    assert sent[0].data["message_type"] == "TEXT"
+    assert message.status_code == 403
+    assert message.json()["detail"] == "Observer device is banned"
+    assert sent == []
 
 
 def test_live_location_points_do_not_create_extra_pushes(client, monkeypatch):

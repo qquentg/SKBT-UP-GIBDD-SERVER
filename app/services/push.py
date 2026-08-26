@@ -85,10 +85,16 @@ def send_push_notifications(notifications: list[PushNotification]) -> None:
     settings = get_settings()
     if not settings.fcm_project_id or not settings.fcm_service_account_file:
         logger.info(
-            "Push notifications skipped: FCM settings are not configured",
-            extra={"push_count": len(notifications)},
+            "Push notifications skipped: FCM settings are not configured; push_count=%s",
+            len(notifications),
         )
         return
+
+    logger.info(
+        "Push notifications queued: push_count=%s project_id=%s",
+        len(notifications),
+        settings.fcm_project_id,
+    )
 
     Thread(
         target=_deliver_push_notifications,
@@ -137,11 +143,25 @@ def _deliver_push_notifications(
                         }
                     },
                 )
-                response.raise_for_status()
-            except httpx.HTTPError:
+                if response.is_error:
+                    logger.error(
+                        "Push notification delivery failed: device_id=%s status=%s body=%s",
+                        notification.device_id,
+                        response.status_code,
+                        response.text[:1000],
+                    )
+                    continue
+                logger.info(
+                    "Push notification delivered: device_id=%s status=%s body=%s",
+                    notification.device_id,
+                    response.status_code,
+                    response.text[:500],
+                )
+            except httpx.HTTPError as exc:
                 logger.exception(
-                    "Push notification delivery failed",
-                    extra={"device_id": notification.device_id},
+                    "Push notification request failed: device_id=%s error=%s",
+                    notification.device_id,
+                    exc,
                 )
 
 

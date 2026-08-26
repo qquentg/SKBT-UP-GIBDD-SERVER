@@ -51,6 +51,8 @@ def create_text_message(
     text: str | None,
     observer_device_id: UUID | None,
 ) -> Message:
+    _require_sender_can_create_message(sender=sender, client_app=client_app)
+
     if text is None or not text.strip():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -85,6 +87,8 @@ def create_static_location_message(
     longitude: float,
     observer_device_id: UUID | None,
 ) -> Message:
+    _require_sender_can_create_message(sender=sender, client_app=client_app)
+
     observer = _resolve_observer_device(
         sender=sender,
         client_app=client_app,
@@ -117,6 +121,8 @@ def create_media_message(
     mime_type: str,
     observer_device_id: UUID | None,
 ) -> Message:
+    _require_sender_can_create_message(sender=sender, client_app=client_app)
+
     storage_key = storage_key.strip()
     if not storage_key:
         raise HTTPException(
@@ -162,6 +168,7 @@ def create_uploaded_media_message(
     content: bytes,
     observer_device_id: UUID | None,
 ) -> Message:
+    _require_sender_can_create_message(sender=sender, client_app=client_app)
     cleanup_expired_media_files()
 
     if not content:
@@ -201,6 +208,8 @@ def create_live_location_message(
     client_app: ClientApp,
     observer_device_id: UUID | None,
 ) -> Message:
+    _require_sender_can_create_message(sender=sender, client_app=client_app)
+
     observer = _resolve_observer_device(
         sender=sender,
         client_app=client_app,
@@ -568,6 +577,14 @@ def _resolve_observer_device(
             detail="Observer device not found",
         )
     return observer
+
+
+def _require_sender_can_create_message(*, sender: Device, client_app: ClientApp) -> None:
+    if client_app == ClientApp.EYEWITNESS and get_active_ban(sender.id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Observer device is banned",
+        )
 
 
 def _require_chat_participant(
