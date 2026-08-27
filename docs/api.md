@@ -2189,7 +2189,8 @@ GET /api/v1/messages/{message_id}/live-location/points?after_recorded_at=<dateti
     "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
     "issued_by_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
     "started_at": "2026-08-23T12:30:15.123456Z",
-    "ends_at": "2026-08-24T12:30:15.123456Z"
+    "ends_at": "2026-08-24T12:30:15.123456Z",
+    "ban_number": 1
   }
 }
 ```
@@ -2203,14 +2204,19 @@ GET /api/v1/messages/{message_id}/live-location/points?after_recorded_at=<dateti
 ```json
 {
   "event": "role_changed",
-  "actor_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
+  "event_id": "9e32ef94-d6ef-41de-ae37-5fb5bb2b0007",
+  "action": "REPLACED",
+  "issued_by_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
   "target_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003",
-  "action": "ASSIGNED",
-  "role": "INSPECTOR"
+  "old_role": "ADMIN",
+  "new_role": "INSPECTOR",
+  "created_at": "2026-08-23T12:30:15.123456Z"
 }
 ```
 
 `action` может быть `ASSIGNED`, `REPLACED`, `REMOVED`.
+Для `ASSIGNED` поле `old_role` равно `null`.
+Для `REMOVED` поле `new_role` равно `null`.
 
 ### message_delivered
 
@@ -2345,7 +2351,8 @@ Frontend передает push-токен только в `POST /api/v1/devices/
 - при новом сообщении от Очевидца отправляет push всем employee-устройствам с ролью `INSPECTOR`, `ADMIN` или `CHIEF`, если у них есть `push_token`;
 - при активном бане Очевидца новое сообщение не создается, поэтому push по этому сообщению не отправляется;
 - при новом сообщении от Сотрудника отправляет push Очевидцу, если у него есть `push_token`;
-- при бане Очевидца отправляет push самому Очевидцу и другим `CHIEF`-устройствам;
+- при бане Очевидца отправляет data-only push самому Очевидцу и всем `CHIEF`-устройствам;
+- при выдаче, замене или удалении роли отправляет data-only push всем `CHIEF`-устройствам;
 - при старте live-геолокации отправляет один push о новом сообщении типа `LIVE_LOCATION`;
 - при добавлении очередной точки live-геолокации push не отправляет, точки нужно получать через `GET /api/v1/messages/{message_id}/live-location/points`.
 
@@ -2373,9 +2380,37 @@ Push не заменяет REST API.
   "event": "observer_banned",
   "ban_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0005",
   "observer_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0001",
-  "issued_by_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002"
+  "issued_by_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
+  "started_at": "2026-08-23T12:30:15.123456Z",
+  "ends_at": "2026-08-24T12:30:15.123456Z",
+  "ban_number": "1"
 }
 ```
+
+Для постоянного бана в FCM `data` поле `ends_at` приходит пустой строкой `""`.
+Это ограничение Firebase: значения внутри `data` должны быть строками.
+В REST API `ends_at` для постоянного бана остается обычным `null`.
+
+Для изменения роли:
+
+```json
+{
+  "event": "role_changed",
+  "event_id": "9e32ef94-d6ef-41de-ae37-5fb5bb2b0007",
+  "action": "REPLACED",
+  "issued_by_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0002",
+  "target_device_id": "2b2c9f3c-1c9a-4b1f-b2f0-531f2b9b0003",
+  "old_role": "ADMIN",
+  "new_role": "INSPECTOR",
+  "created_at": "2026-08-23T12:30:15.123456Z"
+}
+```
+
+Для `ASSIGNED` поле `old_role` в FCM `data` приходит пустой строкой `""`.
+Для `REMOVED` поле `new_role` в FCM `data` приходит пустой строкой `""`.
+
+Административные push-события `observer_banned` и `role_changed` отправляются data-only: backend не передает `notification.title` и `notification.body`.
+Так Android не покажет случайный серверный текст в фоне, а frontend сам решает, как отобразить событие во вкладке `Уведомления`.
 
 На сервере для реальной доставки через Firebase должны быть настроены переменные окружения:
 

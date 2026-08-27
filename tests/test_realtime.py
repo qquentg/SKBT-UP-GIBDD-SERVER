@@ -162,8 +162,10 @@ def test_ban_realtime_notifies_observer_and_chief(client, monkeypatch):
 
     assert published_devices[0][0] == {observer["device_id"]}
     assert published_devices[0][1]["event"] == "observer_banned"
+    assert published_devices[0][1]["ban"]["ban_number"] == 1
     assert published_roles[0][0] == {"CHIEF"}
     assert published_roles[0][1]["event"] == "observer_banned"
+    assert published_roles[0][1]["ban"]["ban_number"] == 1
 
     assert started.status_code == 403
     assert started.json()["detail"] == "Observer device is banned"
@@ -196,13 +198,14 @@ def test_employee_websocket_uses_current_role_after_role_assignment(client):
         message_event = websocket.receive_json()
 
     assert assigned.status_code == 200
-    assert role_event == {
-        "event": "role_changed",
-        "actor_device_id": chief["device_id"],
-        "target_device_id": employee["device_id"],
-        "action": "ASSIGNED",
-        "role": "INSPECTOR",
-    }
+    assert role_event["event"] == "role_changed"
+    assert role_event["event_id"]
+    assert role_event["issued_by_device_id"] == chief["device_id"]
+    assert role_event["target_device_id"] == employee["device_id"]
+    assert role_event["action"] == "ASSIGNED"
+    assert role_event["old_role"] is None
+    assert role_event["new_role"] == "INSPECTOR"
+    assert role_event["created_at"]
     assert created.status_code == 200
     assert message_event["event"] == "message_created"
     assert message_event["message"]["message_id"] == created.json()["message_id"]

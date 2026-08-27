@@ -7,6 +7,7 @@ from app.models.ban import Ban
 from app.models.device import Device
 from app.models.location_point import LocationPoint
 from app.models.message import Message
+from app.models.role_event import RoleEvent
 from app.schemas.device import ClientApp, DeviceRole
 from app.services.message_payloads import location_point_payload, message_payload
 
@@ -114,7 +115,7 @@ def publish_live_location_stopped(message: Message) -> None:
     manager.publish_to_employee_roles(_employee_roles_for_message(message), event)
 
 
-def publish_observer_banned(ban: Ban, *, actor_device_id: UUID) -> None:
+def publish_observer_banned(ban: Ban) -> None:
     event = {
         "event": "observer_banned",
         "ban": {
@@ -123,6 +124,7 @@ def publish_observer_banned(ban: Ban, *, actor_device_id: UUID) -> None:
             "issued_by_device_id": str(ban.issued_by_device_id),
             "started_at": ban.started_at.isoformat(),
             "ends_at": ban.ends_at.isoformat() if ban.ends_at is not None else None,
+            "ban_number": _ban_number(ban),
         },
     }
     manager.publish_to_devices({str(ban.observer_device_id)}, event)
@@ -130,20 +132,26 @@ def publish_observer_banned(ban: Ban, *, actor_device_id: UUID) -> None:
 
 
 def publish_role_changed(
+    role_event: RoleEvent,
     *,
-    actor_device_id: UUID,
-    target_device_id: UUID,
-    action: str,
-    role: str | None,
+    old_role: str | None,
+    new_role: str | None,
 ) -> None:
     event = {
         "event": "role_changed",
-        "actor_device_id": str(actor_device_id),
-        "target_device_id": str(target_device_id),
-        "action": action,
-        "role": role,
+        "event_id": str(role_event.id),
+        "action": role_event.action,
+        "issued_by_device_id": (
+            str(role_event.actor_device_id)
+            if role_event.actor_device_id is not None
+            else None
+        ),
+        "target_device_id": str(role_event.target_device_id),
+        "old_role": old_role,
+        "new_role": new_role,
+        "created_at": role_event.created_at.isoformat(),
     }
-    manager.publish_to_devices({str(target_device_id)}, event)
+    manager.publish_to_devices({str(role_event.target_device_id)}, event)
     manager.publish_to_employee_roles({DeviceRole.CHIEF.value}, event)
 
 
@@ -188,6 +196,17 @@ def _get_ban_at(observer_device_id: UUID, moment: datetime) -> Ban | None:
 def _current_role(device_id: str) -> str | None:
     device = Device.get_or_none(Device.id == device_id)
     return device.current_role if device is not None else None
+
+
+def _ban_number(ban: Ban) -> int:
+    return (
+        Ban.select()
+        .where(
+            (Ban.observer_device == ban.observer_device_id)
+            & (Ban.started_at <= ban.started_at)
+        )
+        .count()
+    )
 
 
 def _as_utc_aware(value: datetime) -> datetime:

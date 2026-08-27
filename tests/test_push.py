@@ -52,6 +52,7 @@ def test_eyewitness_message_pushes_to_employee_devices_with_roles(client, monkey
     admin_without_push = register(client, "employee", "e")
     assign_role(client, chief, inspector, "INSPECTOR")
     assign_role(client, chief, admin_without_push, "ADMIN")
+    sent.clear()
 
     response = client.post(
         "/api/v1/messages",
@@ -99,6 +100,7 @@ def test_ban_pushes_to_observer_and_other_chief_devices(client, monkeypatch):
     chief = register(client, "employee", "i", "actor-chief-token")
     second_chief = register(client, "employee", "j", "second-chief-token")
     assign_role(client, chief, second_chief, "CHIEF")
+    sent.clear()
 
     response = client.post(
         f"/api/v1/employee/devices/{observer['device_id']}/ban",
@@ -108,13 +110,59 @@ def test_ban_pushes_to_observer_and_other_chief_devices(client, monkeypatch):
     assert response.status_code == 200
     assert {notification.push_token for notification in sent} == {
         "observer-token",
+        "actor-chief-token",
         "second-chief-token",
     }
     assert {notification.data["event"] for notification in sent} == {"observer_banned"}
+    assert {notification.title for notification in sent} == {None}
+    assert {notification.body for notification in sent} == {None}
     assert all(
         notification.data["observer_device_id"] == observer["device_id"]
         for notification in sent
     )
+    assert all(notification.data["started_at"] for notification in sent)
+    assert all(notification.data["ends_at"] for notification in sent)
+    assert {notification.data["ban_number"] for notification in sent} == {"1"}
+
+
+def test_role_change_pushes_administrative_event_to_chief_devices(client, monkeypatch):
+    sent = capture_push(monkeypatch)
+    chief = register(client, "employee", "q", "chief-token")
+    target = register(client, "employee", "r", "target-token")
+
+    assign_role(client, chief, target, "ADMIN")
+
+    assert [notification.push_token for notification in sent] == ["chief-token"]
+    assert sent[0].title is None
+    assert sent[0].body is None
+    assert sent[0].data["event"] == "role_changed"
+    assert sent[0].data["event_id"]
+    assert sent[0].data["action"] == "ASSIGNED"
+    assert sent[0].data["issued_by_device_id"] == chief["device_id"]
+    assert sent[0].data["target_device_id"] == target["device_id"]
+    assert sent[0].data["old_role"] == ""
+    assert sent[0].data["new_role"] == "ADMIN"
+    assert sent[0].data["created_at"]
+
+    sent.clear()
+    assign_role(client, chief, target, "INSPECTOR")
+
+    assert [notification.push_token for notification in sent] == ["chief-token"]
+    assert sent[0].data["action"] == "REPLACED"
+    assert sent[0].data["old_role"] == "ADMIN"
+    assert sent[0].data["new_role"] == "INSPECTOR"
+
+    sent.clear()
+    response = client.delete(
+        f"/api/v1/employee/devices/{target['device_id']}/role",
+        headers=auth_headers(chief["access_token"], "employee"),
+    )
+
+    assert response.status_code == 200
+    assert [notification.push_token for notification in sent] == ["chief-token"]
+    assert sent[0].data["action"] == "REMOVED"
+    assert sent[0].data["old_role"] == "INSPECTOR"
+    assert sent[0].data["new_role"] == ""
 
 
 def test_banned_observer_message_does_not_create_push(client, monkeypatch):

@@ -4,6 +4,7 @@ from app.db.database import database_proxy
 from app.models.device import Device, utc_now
 from app.models.role_event import RoleEvent
 from app.schemas.device import DeviceRole, RoleAction
+from app.services.push import notify_role_changed
 from app.services.realtime import publish_role_changed
 
 ROLE_ASSIGNMENT_RIGHTS = {
@@ -66,7 +67,7 @@ def assign_role(
         Device.update(current_role=role.value, last_activity_at=utc_now()).where(
             Device.id == target.id
         ).execute()
-        RoleEvent.create(
+        role_event = RoleEvent.create(
             actor_device=actor.id,
             target_device=target.id,
             action=action.value,
@@ -74,11 +75,11 @@ def assign_role(
         )
 
     updated = Device.get_by_id(target.id)
+    notify_role_changed(role_event, old_role=old_role, new_role=role.value)
     publish_role_changed(
-        actor_device_id=actor.id,
-        target_device_id=target.id,
-        action=action.value,
-        role=role.value,
+        role_event,
+        old_role=old_role,
+        new_role=role.value,
     )
     return updated, action
 
@@ -93,7 +94,7 @@ def remove_role(*, actor: Device, target: Device) -> tuple[Device, RoleAction | 
         Device.update(current_role=None, last_activity_at=utc_now()).where(
             Device.id == target.id
         ).execute()
-        RoleEvent.create(
+        role_event = RoleEvent.create(
             actor_device=actor.id,
             target_device=target.id,
             action=RoleAction.REMOVED.value,
@@ -101,10 +102,10 @@ def remove_role(*, actor: Device, target: Device) -> tuple[Device, RoleAction | 
         )
 
     updated = Device.get_by_id(target.id)
+    notify_role_changed(role_event, old_role=removed_role, new_role=None)
     publish_role_changed(
-        actor_device_id=actor.id,
-        target_device_id=target.id,
-        action=RoleAction.REMOVED.value,
-        role=removed_role,
+        role_event,
+        old_role=removed_role,
+        new_role=None,
     )
     return updated, RoleAction.REMOVED

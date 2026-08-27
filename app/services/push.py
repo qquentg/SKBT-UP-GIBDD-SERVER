@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.models.ban import Ban
 from app.models.device import Device
 from app.models.message import Message
+from app.models.role_event import RoleEvent
 from app.schemas.device import DeviceRole
 from app.schemas.messages import MessageType
 
@@ -28,8 +29,8 @@ EMPLOYEE_PUSH_ROLES = {
 class PushNotification:
     device_id: str
     push_token: str
-    title: str
-    body: str
+    title: str | None
+    body: str | None
     data: dict[str, str]
 
 
@@ -38,42 +39,67 @@ def notify_message_created(message: Message) -> None:
     send_push_notifications(notifications)
 
 
-def notify_observer_banned(ban: Ban, *, actor_device_id: UUID) -> None:
+def notify_observer_banned(ban: Ban) -> None:
     notifications: list[PushNotification] = []
+    data = {
+        "event": "observer_banned",
+        "ban_id": str(ban.id),
+        "observer_device_id": str(ban.observer_device_id),
+        "issued_by_device_id": str(ban.issued_by_device_id),
+        "started_at": _datetime_data_value(ban.started_at),
+        "ends_at": _optional_datetime_data_value(ban.ends_at),
+        "ban_number": str(_ban_number(ban)),
+    }
     observer = Device.get_or_none(Device.id == ban.observer_device_id)
     if observer is not None:
         notifications.extend(
             _notifications_for_devices(
                 devices=[observer],
-                title="Access blocked",
-                body="Your chat is temporarily blocked",
-                data={
-                    "event": "observer_banned",
-                    "ban_id": str(ban.id),
-                    "observer_device_id": str(ban.observer_device_id),
-                    "issued_by_device_id": str(ban.issued_by_device_id),
-                },
+                title=None,
+                body=None,
+                data=data,
             )
         )
 
     chief_devices = _devices_with_push_token(
-        Device.select().where(
-            (Device.current_role == DeviceRole.CHIEF.value)
-            & (Device.id != actor_device_id)
-        )
+        Device.select().where(Device.current_role == DeviceRole.CHIEF.value)
     )
     notifications.extend(
         _notifications_for_devices(
             devices=chief_devices,
-            title="Observer blocked",
-            body="An observer chat was blocked",
-            data={
-                "event": "observer_banned",
-                "ban_id": str(ban.id),
-                "observer_device_id": str(ban.observer_device_id),
-                "issued_by_device_id": str(ban.issued_by_device_id),
-            },
+            title=None,
+            body=None,
+            data=data,
         )
+    )
+    send_push_notifications(notifications)
+
+
+def notify_role_changed(
+    role_event: RoleEvent,
+    *,
+    old_role: str | None,
+    new_role: str | None,
+) -> None:
+    chief_devices = _devices_with_push_token(
+        Device.select().where(Device.current_role == DeviceRole.CHIEF.value)
+    )
+    notifications = _notifications_for_devices(
+        devices=chief_devices,
+        title=None,
+        body=None,
+        data={
+            "event": "role_changed",
+            "event_id": str(role_event.id),
+            "action": role_event.action,
+            "issued_by_device_id": _optional_uuid_data_value(
+                role_event.actor_device_id
+            ),
+            "target_device_id": str(role_event.target_device_id),
+            "old_role": old_role or "",
+            "new_role": new_role or "",
+            "created_at": _datetime_data_value(role_event.created_at),
+        },
     )
     send_push_notifications(notifications)
 
@@ -128,20 +154,21 @@ def _deliver_push_notifications(
 
     with httpx.Client(timeout=timeout_seconds) as client:
         for notification in notifications:
+            message: dict = {
+                "token": notification.push_token,
+                "data": notification.data,
+            }
+            if notification.title is not None and notification.body is not None:
+                message["notification"] = {
+                    "title": notification.title,
+                    "body": notification.body,
+                }
+
             try:
                 response = client.post(
                     url,
                     headers=headers,
-                    json={
-                        "message": {
-                            "token": notification.push_token,
-                            "notification": {
-                                "title": notification.title,
-                                "body": notification.body,
-                            },
-                            "data": notification.data,
-                        }
-                    },
+                    json={"message": message},
                 )
                 if response.is_error:
                     logger.error(
@@ -219,8 +246,8 @@ def _message_body(message: Message) -> str:
 def _notifications_for_devices(
     *,
     devices,
-    title: str,
-    body: str,
+    title: str | None,
+    body: str | None,
     data: dict[str, str],
 ) -> list[PushNotification]:
     return [
@@ -257,6 +284,29 @@ def _get_active_ban(observer_device_id: UUID) -> Ban | None:
         ):
             return ban
     return None
+
+
+def _ban_number(ban: Ban) -> int:
+    return (
+        Ban.select()
+        .where(
+            (Ban.observer_device == ban.observer_device_id)
+            & (Ban.started_at <= ban.started_at)
+        )
+        .count()
+    )
+
+
+def _datetime_data_value(value: datetime) -> str:
+    return value.isoformat()
+
+
+def _optional_datetime_data_value(value: datetime | None) -> str:
+    return value.isoformat() if value is not None else ""
+
+
+def _optional_uuid_data_value(value: UUID | None) -> str:
+    return str(value) if value is not None else ""
 
 
 def _as_utc_aware(value: datetime) -> datetime:
